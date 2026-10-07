@@ -85,16 +85,97 @@ impl CpuCompositor {
 }
 
 fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment, opacity: f64) {
-    if adjustment.kind != AdjustmentKind::Invert || opacity <= 0.0 {
+    if opacity <= 0.0 {
         return;
     }
     let opacity = opacity.clamp(0.0, 1.0) as f32;
     for pixel in surface.pixels.chunks_exact_mut(4) {
-        for component in &mut pixel[..3] {
-            let original = *component as f32;
-            *component = (original + (255.0 - 2.0 * original) * opacity).round() as u8;
+        let original = [
+            pixel[0] as f32 / 255.0,
+            pixel[1] as f32 / 255.0,
+            pixel[2] as f32 / 255.0,
+        ];
+        let Some(adjusted) = adjusted_rgb(adjustment, original) else {
+            return;
+        };
+        for (component, (before, after)) in pixel[..3]
+            .iter_mut()
+            .zip(original.into_iter().zip(adjusted))
+        {
+            *component =
+                ((before + (after - before) * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
+}
+
+fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3]> {
+    match adjustment.kind {
+        AdjustmentKind::Invert => Some(color.map(|component| 1.0 - component)),
+        AdjustmentKind::BlackWhite => {
+            let luma = luminosity(color);
+            Some([luma; 3])
+        }
+        AdjustmentKind::Exposure => {
+            let settings = adjustment.exposure_settings.as_ref()?;
+            let gamma = settings.gamma.max(0.01) as f32;
+            let multiplier = 2.0_f32.powf(settings.exposure as f32);
+            Some(color.map(|component| {
+                (component * multiplier + settings.offset as f32)
+                    .max(0.0)
+                    .powf(1.0 / gamma)
+                    .clamp(0.0, 1.0)
+            }))
+        }
+        AdjustmentKind::HueSaturation => {
+            let settings = adjustment.hsv_settings.as_ref();
+            let hue = settings.map_or(adjustment.hue, |value| value.hue) as f32;
+            let saturation =
+                settings.map_or(adjustment.saturation, |value| value.saturation) as f32;
+            let lightness = settings.map_or(adjustment.lightness, |value| value.lightness) as f32;
+            let (hue_base, saturation_base, lightness_base) = rgb_to_hsl(color);
+            Some(hsl_to_rgb(
+                (hue_base + hue / 360.0).rem_euclid(1.0),
+                (saturation_base * (1.0 + saturation / 100.0)).clamp(0.0, 1.0),
+                (lightness_base + lightness / 100.0).clamp(0.0, 1.0),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn rgb_to_hsl(color: [f32; 3]) -> (f32, f32, f32) {
+    let min = color[0].min(color[1]).min(color[2]);
+    let max = color[0].max(color[1]).max(color[2]);
+    let lightness = (min + max) / 2.0;
+    let delta = max - min;
+    if delta == 0.0 {
+        return (0.0, 0.0, lightness);
+    }
+    let saturation = delta / (1.0 - (2.0 * lightness - 1.0).abs());
+    let hue = if max == color[0] {
+        ((color[1] - color[2]) / delta).rem_euclid(6.0)
+    } else if max == color[1] {
+        (color[2] - color[0]) / delta + 2.0
+    } else {
+        (color[0] - color[1]) / delta + 4.0
+    } / 6.0;
+    (hue, saturation, lightness)
+}
+
+fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> [f32; 3] {
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let hue_sector = hue * 6.0;
+    let x = chroma * (1.0 - (hue_sector.rem_euclid(2.0) - 1.0).abs());
+    let (red, green, blue) = match hue_sector as u8 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let offset = lightness - chroma / 2.0;
+    [red + offset, green + offset, blue + offset]
 }
 
 fn ordered_layers(document: &Document) -> Result<Vec<(&Layer, f64)>, CompositeError> {
@@ -661,5 +742,24 @@ mod tests {
 
         let surface = CpuCompositor::render(&document).unwrap();
         assert_eq!(surface.pixels, vec![128, 128, 128, 255]);
+    }
+
+    #[test]
+    fn applies_basic_color_adjustments() {
+        let hue = adjusted_rgb(
+            &LayerAdjustment::hue_saturation(120.0, 0.0, 0.0),
+            [1.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert!((hue[0] - 0.0).abs() < 0.0001);
+        assert!((hue[1] - 1.0).abs() < 0.0001);
+        assert!((hue[2] - 0.0).abs() < 0.0001);
+
+        let exposure = adjusted_rgb(&LayerAdjustment::exposure(1.0, 0.0, 1.0), [0.25; 3]).unwrap();
+        assert_eq!(exposure, [0.5; 3]);
+
+        let black_and_white =
+            adjusted_rgb(&LayerAdjustment::black_and_white(), [1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(black_and_white, [0.3; 3]);
     }
 }
