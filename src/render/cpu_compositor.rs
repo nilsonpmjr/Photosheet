@@ -268,6 +268,21 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
     }
 }
 
+/// Margem, em pixels do documento, que um ajuste espacial precisa amostrar fora
+/// da área alterada. Canvas e exportação renderizam a superfície completa; a
+/// mesma medida permite que futuros renderizadores tileados ampliem o dirty rect.
+pub fn adjustment_sampling_margin(adjustment: &LayerAdjustment) -> usize {
+    match adjustment.kind {
+        AdjustmentKind::GaussianBlur => {
+            (adjustment.blur_radius.unwrap_or(10.0).max(0.0) * 3.0).ceil() as usize
+        }
+        AdjustmentKind::MotionBlur => {
+            (adjustment.motion_distance.unwrap_or(10.0).max(0.0) / 2.0).ceil() as usize
+        }
+        _ => 0,
+    }
+}
+
 fn noise_value(index: u32, seed: u32, gaussian: bool) -> f32 {
     if !gaussian {
         return noise_sample(index, seed);
@@ -1438,6 +1453,18 @@ mod tests {
         assert!(surface.pixels[0] > 0);
         assert!(surface.pixels[8] > 0);
         assert_eq!(surface.pixels[3], 255);
+    }
+
+    #[test]
+    fn reports_spatial_adjustment_sampling_margins() {
+        assert_eq!(
+            adjustment_sampling_margin(&LayerAdjustment::gaussian_blur(2.0)),
+            6
+        );
+        let mut motion = LayerAdjustment::new(AdjustmentKind::MotionBlur);
+        motion.motion_distance = Some(9.0);
+        assert_eq!(adjustment_sampling_margin(&motion), 5);
+        assert_eq!(adjustment_sampling_margin(&LayerAdjustment::invert()), 0);
     }
 
     #[test]
