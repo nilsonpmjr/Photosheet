@@ -311,38 +311,31 @@ impl CanvasWidget {
         cr.rectangle(origin_x, origin_y, doc_w * session.zoom, doc_h * session.zoom);
         cr.fill().ok();
 
-        // 4. Renderização das Camadas Visíveis (Bottom-to-Top)
+        // 4. O canvas e a exportação usam o mesmo compositor de referência.
         cr.save().ok();
         cr.translate(origin_x, origin_y);
         cr.scale(session.zoom, session.zoom);
-
-        for layer in &doc.layers {
-            if !layer.is_visible || layer.opacity <= 0.0 {
-                continue;
-            }
-
-            if let crate::core::layer::LayerKind::Pixel { ref pixels, width, height, .. } = layer.kind {
-                if let Some(buf) = pixels {
-                    if let Ok(mut surface) = ImageSurface::create(Format::ARgb32, width as i32, height as i32) {
-                        // Converter RGBA8 para o formato pré-multiplicado de memória Cairo
-                        {
-                            let mut data = surface.data().unwrap();
-                            for (src_chunk, dst_chunk) in buf.chunks_exact(4).zip(data.chunks_exact_mut(4)) {
-                                let r = src_chunk[0];
-                                let g = src_chunk[1];
-                                let b = src_chunk[2];
-                                let a = src_chunk[3];
-                                // Cairo ARgb32 no Linux Little Endian é BGRA
-                                dst_chunk[0] = b;
-                                dst_chunk[1] = g;
-                                dst_chunk[2] = r;
-                                dst_chunk[3] = a;
-                            }
+        if let Ok(composite) = crate::render::cpu_compositor::CpuCompositor::render(doc) {
+            if let Ok(mut surface) = ImageSurface::create(Format::ARgb32, doc.width as i32, doc.height as i32) {
+                let stride = surface.stride() as usize;
+                {
+                    let mut data = surface.data().expect("new Cairo surface must be writable");
+                    for y in 0..doc.height {
+                        let source_row = &composite.pixels[y * doc.width * 4..(y + 1) * doc.width * 4];
+                        let destination_row = &mut data[y * stride..y * stride + doc.width * 4];
+                        for (src, dst) in source_row.chunks_exact(4).zip(destination_row.chunks_exact_mut(4)) {
+                            let alpha = src[3] as u16;
+                            // Cairo ARgb32 no Linux little-endian é BGRA pré-multiplicado.
+                            dst[0] = ((src[2] as u16 * alpha + 127) / 255) as u8;
+                            dst[1] = ((src[1] as u16 * alpha + 127) / 255) as u8;
+                            dst[2] = ((src[0] as u16 * alpha + 127) / 255) as u8;
+                            dst[3] = src[3];
                         }
-                        cr.set_source_surface(&surface, layer.transform.origin.x, layer.transform.origin.y).ok();
-                        cr.paint_with_alpha(layer.opacity).ok();
                     }
                 }
+                surface.mark_dirty();
+                cr.set_source_surface(&surface, 0.0, 0.0).ok();
+                cr.paint().ok();
             }
         }
         cr.restore().ok();

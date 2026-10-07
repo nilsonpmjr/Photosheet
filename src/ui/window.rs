@@ -269,31 +269,16 @@ impl PhotosheetWindow {
                     crate::ui::dialogs::ExportDialog::show(&win, doc, move |params| {
                         let s_mut = sess_ref.borrow();
                         if let Some(d) = &s_mut.document {
-                            let mut composite_buf = vec![255u8; d.width * d.height * 4];
-                            for layer in &d.layers {
-                                if !layer.is_visible {
-                                    continue;
-                                }
-                                if let crate::core::layer::LayerKind::Pixel { ref pixels, .. } = layer.kind {
-                                    if let Some(px) = pixels {
-                                        for (dst, src) in composite_buf.chunks_exact_mut(4).zip(px.chunks_exact(4)) {
-                                            let sa = src[3] as f32 / 255.0;
-                                            if sa > 0.0 {
-                                                dst[0] = (src[0] as f32 * sa + dst[0] as f32 * (1.0 - sa)).round() as u8;
-                                                dst[1] = (src[1] as f32 * sa + dst[1] as f32 * (1.0 - sa)).round() as u8;
-                                                dst[2] = (src[2] as f32 * sa + dst[2] as f32 * (1.0 - sa)).round() as u8;
-                                                dst[3] = 255;
-                                            }
-                                        }
-                                    }
-                                }
+                            if let Ok(composite) =
+                                crate::render::cpu_compositor::CpuCompositor::render(d)
+                            {
+                                let _ = crate::ui::dialogs::ExportDialog::export_composite(
+                                    &composite.pixels,
+                                    composite.width as u32,
+                                    composite.height as u32,
+                                    &params,
+                                );
                             }
-                            let _ = crate::ui::dialogs::ExportDialog::export_composite(
-                                &composite_buf,
-                                d.width as u32,
-                                d.height as u32,
-                                &params,
-                            );
                         }
                     });
                 }

@@ -5,7 +5,7 @@ use crate::core::adjustment::LayerAdjustment;
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::history::DocumentHistory;
-use crate::core::layer::{Layer, LayerKind};
+use crate::core::layer::Layer;
 use crate::core::transform::{LayerTransform, Point, Size};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -234,7 +234,7 @@ impl EditorSession {
             file_path: None,
             is_dirty: false,
             active_tool: NavigationTool::Move,
-            foreground_color: [0, 0, 0, 255], // Preto
+            foreground_color: [0, 0, 0, 255],       // Preto
             background_color: [255, 255, 255, 255], // Branco
             brush_settings: BrushSettings::default(),
             wand_settings: WandSettings::default(),
@@ -323,7 +323,10 @@ impl EditorSession {
             height,
             LayerTransform::new(
                 Point { x: 0.0, y: 0.0 },
-                Size { width: width as f64, height: height as f64 },
+                Size {
+                    width: width as f64,
+                    height: height as f64,
+                },
             ),
         );
         let id = layer.id;
@@ -346,7 +349,10 @@ impl EditorSession {
             group_name,
             LayerTransform::new(
                 Point { x: 0.0, y: 0.0 },
-                Size { width: width as f64, height: height as f64 },
+                Size {
+                    width: width as f64,
+                    height: height as f64,
+                },
             ),
         );
         let id = group.id;
@@ -357,21 +363,28 @@ impl EditorSession {
         Some(id)
     }
 
-    pub fn add_adjustment_layer(&mut self, adjustment: LayerAdjustment, name: Option<String>) -> Option<Uuid> {
+    pub fn add_adjustment_layer(
+        &mut self,
+        adjustment: LayerAdjustment,
+        name: Option<String>,
+    ) -> Option<Uuid> {
         let (width, height) = {
             let doc = self.document.as_ref()?;
             (doc.width, doc.height)
         };
         let adj_name = name.unwrap_or_else(|| format!("Ajuste {:?}", adjustment));
         self.push_history("Nova Camada de Ajuste");
-        let mut layer = Layer::new_group(
+        let layer = Layer::new_adjustment(
             adj_name,
+            adjustment,
             LayerTransform::new(
                 Point { x: 0.0, y: 0.0 },
-                Size { width: width as f64, height: height as f64 },
+                Size {
+                    width: width as f64,
+                    height: height as f64,
+                },
             ),
         );
-        layer.kind = LayerKind::Adjustment(adjustment);
         let id = layer.id;
 
         if let Some(doc) = self.document.as_mut() {
@@ -505,24 +518,51 @@ mod tests {
 
         // Teste de opacidade e blend mode
         session.set_active_layer_opacity(0.5);
-        assert_eq!(session.document.as_ref().unwrap().active_layer().unwrap().opacity, 0.5);
+        assert_eq!(
+            session
+                .document
+                .as_ref()
+                .unwrap()
+                .active_layer()
+                .unwrap()
+                .opacity,
+            0.5
+        );
 
         session.set_active_layer_blend_mode(LayerBlendMode::Multiply);
         assert_eq!(
-            session.document.as_ref().unwrap().active_layer().unwrap().blend_mode,
+            session
+                .document
+                .as_ref()
+                .unwrap()
+                .active_layer()
+                .unwrap()
+                .blend_mode,
             LayerBlendMode::Multiply
         );
 
         // Teste de Undo / Redo
         assert!(session.undo());
         assert_eq!(
-            session.document.as_ref().unwrap().active_layer().unwrap().blend_mode,
+            session
+                .document
+                .as_ref()
+                .unwrap()
+                .active_layer()
+                .unwrap()
+                .blend_mode,
             LayerBlendMode::Normal
         );
 
         assert!(session.redo());
         assert_eq!(
-            session.document.as_ref().unwrap().active_layer().unwrap().blend_mode,
+            session
+                .document
+                .as_ref()
+                .unwrap()
+                .active_layer()
+                .unwrap()
+                .blend_mode,
             LayerBlendMode::Multiply
         );
 

@@ -1,4 +1,5 @@
 pub mod composite;
+pub mod cpu_compositor;
 pub mod texture_cache;
 pub mod viewport;
 pub mod vulkan_context;
