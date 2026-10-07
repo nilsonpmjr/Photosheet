@@ -2,9 +2,11 @@ pub mod core;
 pub mod ffi;
 pub mod io;
 pub mod render;
+pub mod ui;
 
 use gtk4::prelude::*;
-use libadwaita::prelude::*;
+use ui::dialogs::NewDocumentParams;
+use ui::PhotosheetWindow;
 
 const APP_ID: &str = "org.photosheet.Photosheet";
 
@@ -20,24 +22,14 @@ fn main() {
 }
 
 fn build_ui(app: &libadwaita::Application) {
-    let window = libadwaita::ApplicationWindow::builder()
-        .application(app)
-        .title("Photosheet")
-        .default_width(1280)
-        .default_height(800)
-        .build();
-
-    let header_bar = libadwaita::HeaderBar::new();
-    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    content.append(&header_bar);
-
-    let label = gtk4::Label::builder()
-        .label("Photosheet — Linux Native Image Editor")
-        .vexpand(true)
-        .hexpand(true)
-        .build();
-    content.append(&label);
-
-    window.set_content(Some(&content));
+    let window = PhotosheetWindow::new(app);
+    // Cria um documento padrão inicial Full HD
+    window.create_new_document(NewDocumentParams {
+        width: 1920,
+        height: 1080,
+        resolution: 72.0,
+        background_color: Some([255, 255, 255, 255]),
+    });
     window.present();
 }
+

@@ -217,3 +217,83 @@ pub struct LayerAdjustment {
     #[serde(rename = "noiseSeed", skip_serializing_if = "Option::is_none")]
     pub noise_seed: Option<u32>,
 }
+
+impl LayerAdjustment {
+    pub fn new(kind: AdjustmentKind) -> Self {
+        Self {
+            kind,
+            hue: 0.0,
+            saturation: 0.0,
+            lightness: 0.0,
+            colorize: false,
+            hsv_settings: None,
+            levels: LevelsSettings::default(),
+            curves: CurvesSettings::default(),
+            exposure_settings: None,
+            gradient_map_settings: None,
+            grain_settings: None,
+            black_white_settings: None,
+            color_balance_settings: None,
+            blur_radius: None,
+            motion_angle: None,
+            motion_distance: None,
+            noise_amount: None,
+            noise_gaussian: None,
+            noise_monochromatic: None,
+            noise_seed: None,
+        }
+    }
+
+    pub fn levels(in_black: f64, in_gamma: f64, in_white: f64, out_black: f64, out_white: f64) -> Self {
+        let mut adj = Self::new(AdjustmentKind::Levels);
+        adj.levels.rgb = LevelsChannel {
+            in_black,
+            in_gamma,
+            in_white,
+            out_black,
+            out_white,
+        };
+        adj
+    }
+
+    pub fn hue_saturation(hue: f64, saturation: f64, lightness: f64) -> Self {
+        let mut adj = Self::new(AdjustmentKind::HueSaturation);
+        adj.hue = hue;
+        adj.saturation = saturation;
+        adj.lightness = lightness;
+        adj
+    }
+
+    pub fn exposure(exposure: f64, offset: f64, gamma: f64) -> Self {
+        let mut adj = Self::new(AdjustmentKind::Exposure);
+        adj.exposure_settings = Some(ExposureSettings { exposure, offset, gamma });
+        adj
+    }
+
+    pub fn curves() -> Self {
+        Self::new(AdjustmentKind::Curves)
+    }
+
+    pub fn invert() -> Self {
+        Self::new(AdjustmentKind::Invert)
+    }
+
+    pub fn black_and_white() -> Self {
+        Self::new(AdjustmentKind::BlackWhite)
+    }
+
+    pub fn gaussian_blur(radius: f64) -> Self {
+        let mut adj = Self::new(AdjustmentKind::GaussianBlur);
+        adj.blur_radius = Some(radius);
+        adj
+    }
+
+    pub fn add_noise(amount: f64, gaussian: bool, mono: bool) -> Self {
+        let mut adj = Self::new(AdjustmentKind::AddNoise);
+        adj.noise_amount = Some(amount);
+        adj.noise_gaussian = Some(gaussian);
+        adj.noise_monochromatic = Some(mono);
+        adj
+    }
+}
+

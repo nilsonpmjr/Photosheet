@@ -59,4 +59,9 @@ impl DocumentHistory {
         });
         Some(step.snapshot)
     }
+
+    pub fn clear(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+    }
 }
