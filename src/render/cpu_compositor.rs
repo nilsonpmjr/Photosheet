@@ -156,6 +156,17 @@ fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3
             let luma = luminosity(color);
             Some([luma; 3])
         }
+        AdjustmentKind::GradientMap => {
+            let mut luma = luminosity(color);
+            if adjustment
+                .gradient_map_settings
+                .as_ref()
+                .is_some_and(|settings| settings.reversed)
+            {
+                luma = 1.0 - luma;
+            }
+            Some([luma; 3])
+        }
         AdjustmentKind::Exposure => {
             let settings = adjustment.exposure_settings.as_ref()?;
             let gamma = settings.gamma.max(0.01) as f32;
@@ -975,6 +986,22 @@ mod tests {
         let black_and_white =
             adjusted_rgb(&LayerAdjustment::black_and_white(), [1.0, 0.0, 0.0]).unwrap();
         assert_eq!(black_and_white, [0.3; 3]);
+
+        let mut gradient_map = LayerAdjustment::new(AdjustmentKind::GradientMap);
+        gradient_map.gradient_map_settings = Some(Default::default());
+        assert_eq!(
+            adjusted_rgb(&gradient_map, [1.0, 0.0, 0.0]).unwrap(),
+            [0.3; 3]
+        );
+        gradient_map
+            .gradient_map_settings
+            .as_mut()
+            .unwrap()
+            .reversed = true;
+        assert_eq!(
+            adjusted_rgb(&gradient_map, [1.0, 0.0, 0.0]).unwrap(),
+            [0.7; 3]
+        );
     }
 
     #[test]
