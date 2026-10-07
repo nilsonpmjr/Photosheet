@@ -7,6 +7,7 @@
 use crate::core::adjustment::{AdjustmentKind, CurvePoint, LayerAdjustment, LevelsChannel};
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
+use crate::core::effects::LayerEffects;
 use crate::core::layer::{Layer, LayerKind};
 use crate::core::shape::{LayerShapeStyle, ShapeKind};
 use crate::core::text::{LayerTextStyle, TextAlignment};
@@ -71,6 +72,7 @@ impl CpuCompositor {
                         layer.mask.as_ref(),
                         inherited_opacity * layer.opacity,
                         layer.blend_mode,
+                        layer.effects.as_ref(),
                         layer
                             .clipping_base_id
                             .and_then(|id| by_id.get(&id).copied()),
@@ -87,6 +89,7 @@ impl CpuCompositor {
                     layer.mask.as_ref(),
                     inherited_opacity * layer.opacity,
                     layer.blend_mode,
+                    layer.effects.as_ref(),
                     layer
                         .clipping_base_id
                         .and_then(|id| by_id.get(&id).copied()),
@@ -98,6 +101,7 @@ impl CpuCompositor {
                     &layer.transform,
                     inherited_opacity * layer.opacity,
                     layer.blend_mode,
+                    layer.effects.as_ref(),
                     layer
                         .clipping_base_id
                         .and_then(|id| by_id.get(&id).copied()),
@@ -116,6 +120,7 @@ fn draw_text(
     transform: &LayerTransform,
     opacity: f64,
     blend_mode: LayerBlendMode,
+    effects: Option<&LayerEffects>,
     clipping_base: Option<&Layer>,
     by_id: &HashMap<Uuid, &Layer>,
 ) {
@@ -191,6 +196,7 @@ fn draw_text(
         None,
         opacity,
         blend_mode,
+        effects,
         clipping_base,
         by_id,
     );
@@ -580,6 +586,7 @@ fn draw_layer(
     mask: Option<&crate::core::mask::LayerMask>,
     opacity: f64,
     blend_mode: LayerBlendMode,
+    effects: Option<&LayerEffects>,
     clipping_base: Option<&Layer>,
     by_id: &HashMap<Uuid, &Layer>,
 ) {
@@ -612,11 +619,26 @@ fn draw_layer(
             if source_alpha <= 0.0 {
                 continue;
             }
-            let source_rgb = [
+            let mut source_rgb = [
                 source[source_index] as f32 / 255.0,
                 source[source_index + 1] as f32 / 255.0,
                 source[source_index + 2] as f32 / 255.0,
             ];
+            if let Some(overlay) = effects
+                .and_then(|effects| effects.color_overlay.as_ref())
+                .filter(|overlay| overlay.enabled.unwrap_or(true))
+            {
+                let amount = overlay.opacity.clamp(0.0, 1.0) as f32;
+                let overlay_rgb = [
+                    overlay.red.clamp(0.0, 1.0) as f32,
+                    overlay.green.clamp(0.0, 1.0) as f32,
+                    overlay.blue.clamp(0.0, 1.0) as f32,
+                ];
+                source_rgb = source_rgb.map(|component| component);
+                for channel in 0..3 {
+                    source_rgb[channel] += (overlay_rgb[channel] - source_rgb[channel]) * amount;
+                }
+            }
             let destination_index = (y * destination.width + x) * 4;
             composite_pixel(
                 &mut destination.pixels[destination_index..destination_index + 4],
@@ -636,17 +658,32 @@ fn draw_shape(
     mask: Option<&crate::core::mask::LayerMask>,
     opacity: f64,
     blend_mode: LayerBlendMode,
+    effects: Option<&LayerEffects>,
     clipping_base: Option<&Layer>,
     by_id: &HashMap<Uuid, &Layer>,
 ) {
     if opacity <= 0.0 {
         return;
     }
-    let color = [
+    let mut color = [
         shape.red.clamp(0.0, 1.0) as f32,
         shape.green.clamp(0.0, 1.0) as f32,
         shape.blue.clamp(0.0, 1.0) as f32,
     ];
+    if let Some(overlay) = effects
+        .and_then(|effects| effects.color_overlay.as_ref())
+        .filter(|overlay| overlay.enabled.unwrap_or(true))
+    {
+        let amount = overlay.opacity.clamp(0.0, 1.0) as f32;
+        let overlay_rgb = [
+            overlay.red.clamp(0.0, 1.0) as f32,
+            overlay.green.clamp(0.0, 1.0) as f32,
+            overlay.blue.clamp(0.0, 1.0) as f32,
+        ];
+        for channel in 0..3 {
+            color[channel] += (overlay_rgb[channel] - color[channel]) * amount;
+        }
+    }
     for y in 0..destination.height {
         for x in 0..destination.width {
             let Some((local_x, local_y)) =
@@ -1401,5 +1438,25 @@ mod tests {
         assert!(surface.pixels[0] > 0);
         assert!(surface.pixels[8] > 0);
         assert_eq!(surface.pixels[3], 255);
+    }
+
+    #[test]
+    fn applies_color_overlay_effect_to_layer_content() {
+        let mut document = Document::new(1, 1, 72.0);
+        let mut layer = pixel_layer("base", vec![255, 0, 0, 255]);
+        layer.effects = Some(LayerEffects {
+            color_overlay: Some(crate::core::effects::ColorOverlayEffect {
+                enabled: Some(true),
+                red: 0.0,
+                green: 0.0,
+                blue: 1.0,
+                opacity: 0.5,
+            }),
+            ..Default::default()
+        });
+        document.add_layer(layer);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(surface.pixels, vec![128, 0, 128, 255]);
     }
 }
