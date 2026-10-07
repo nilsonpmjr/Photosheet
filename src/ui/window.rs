@@ -135,8 +135,11 @@ impl PhotosheetWindow {
         doc.add_layer(bg_layer);
 
         // Configurar a sessão
-        let mut session = self.session.borrow_mut();
-        session.set_document(doc);
+        let zoom = {
+            let mut session = self.session.borrow_mut();
+            session.set_document(doc);
+            session.zoom
+        };
 
         // Criar widget do canvas interativo com suporte a pan, zoom e pincel
         let canvas_widget = CanvasWidget::new(Rc::clone(&self.session));
@@ -153,10 +156,10 @@ impl PhotosheetWindow {
         page.set_title(&title);
 
         self.header_bar.set_title(&title);
-        self.header_bar.set_zoom(session.zoom);
+        self.header_bar.set_zoom(zoom);
 
         // Atualizar lista de camadas na UI
-        if let Some(doc_ref) = &session.document {
+        if let Some(doc_ref) = &self.session.borrow().document {
             self.layers_panel.update_layers(&doc_ref.layers, doc_ref.active_layer_id);
         }
     }
@@ -303,11 +306,15 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_add_layer(move || {
-                let mut s = session.borrow_mut();
-                s.add_empty_layer(None);
-                if let Some(doc) = &s.document {
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    s.add_empty_layer(None);
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
         {
@@ -315,11 +322,15 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_add_group(move || {
-                let mut s = session.borrow_mut();
-                s.add_group(None);
-                if let Some(doc) = &s.document {
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    s.add_group(None);
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
         {
@@ -327,11 +338,15 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_delete_layer(move || {
-                let mut s = session.borrow_mut();
-                s.delete_active_layer();
-                if let Some(doc) = &s.document {
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    s.delete_active_layer();
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
         {
@@ -339,11 +354,15 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_duplicate_layer(move || {
-                let mut s = session.borrow_mut();
-                s.duplicate_active_layer();
-                if let Some(doc) = &s.document {
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    s.duplicate_active_layer();
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
         {
@@ -365,13 +384,19 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_toggle_visibility(move |id| {
-                let mut s = session.borrow_mut();
-                if let Some(doc) = s.document.as_mut() {
-                    if let Some(layer) = doc.find_layer_mut(id) {
-                        layer.is_visible = !layer.is_visible;
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    if let Some(doc) = s.document.as_mut() {
+                        if let Some(layer) = doc.find_layer_mut(id) {
+                            layer.is_visible = !layer.is_visible;
+                        }
                     }
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
 
@@ -381,11 +406,15 @@ impl PhotosheetWindow {
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             self.adjustments_panel.connect_adjustment_selected(move |adj| {
-                let mut s = session.borrow_mut();
-                s.add_adjustment_layer(adj, None);
-                if let Some(doc) = &s.document {
-                    lp.update_layers(&doc.layers, doc.active_layer_id);
-                }
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    s.add_adjustment_layer(adj, None);
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
             });
         }
     }

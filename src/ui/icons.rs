@@ -2,7 +2,6 @@
 //! Fornece e registra SVGs de alta resolução e simbólicos para todas as ferramentas e ações da interface.
 
 use gtk4::gdk::Display;
-use gtk4::prelude::*;
 use gtk4::IconTheme;
 use std::fs;
 use std::path::PathBuf;

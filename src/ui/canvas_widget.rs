@@ -63,7 +63,7 @@ impl CanvasWidget {
                 let handle_ref = Rc::clone(&handle_ref);
                 let area = area_clone.clone();
 
-                drag.connect_drag_begin(move |gesture, x, y| {
+                drag.connect_drag_begin(move |_gesture, x, y| {
                     area.grab_focus();
                     *d_start.borrow_mut() = Some((x, y));
 
@@ -161,13 +161,15 @@ impl CanvasWidget {
                 let handle_ref = Rc::clone(&handle_ref);
                 let on_mod = Rc::clone(&on_mod);
 
-                drag.connect_drag_end(move |_gesture, offset_x, offset_y| {
-                    if let Some(start) = *d_start.borrow() {
-                        let mut s = sess.borrow_mut();
-                        if s.active_tool == NavigationTool::Brush || s.active_tool == NavigationTool::Eraser {
-                            s.push_history("Pincelada");
-                        } else if s.active_tool == NavigationTool::Move {
-                            s.push_history("Mover / Transformar");
+                drag.connect_drag_end(move |_gesture, _offset_x, _offset_y| {
+                    if let Some(_start) = *d_start.borrow() {
+                        {
+                            let mut s = sess.borrow_mut();
+                            if s.active_tool == NavigationTool::Brush || s.active_tool == NavigationTool::Eraser {
+                                s.push_history("Pincelada");
+                            } else if s.active_tool == NavigationTool::Move {
+                                s.push_history("Mover / Transformar");
+                            }
                         }
                         if let Some(ref cb) = *on_mod.borrow() {
                             cb();

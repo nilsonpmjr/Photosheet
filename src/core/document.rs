@@ -1,7 +1,7 @@
 //! Modelo de Documento em Memória.
 //! Traduzido de Compositor/Document/ProjectWorkspace.swift e Document.
 
-use crate::core::layer::Layer;
+use crate::core::layer::{Layer, LayerKind};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -84,4 +84,159 @@ impl Document {
             None
         }
     }
+
+    pub fn duplicate_layer(&mut self, id: Uuid) -> Option<Uuid> {
+        let pos = self.layers.iter().position(|l| l.id == id)?;
+        let mut cloned = self.layers[pos].clone();
+        cloned.id = Uuid::new_v4();
+        cloned.name = format!("{} (Cópia)", cloned.name);
+        let new_id = cloned.id;
+        self.layers.insert(pos + 1, cloned);
+        self.active_layer_id = Some(new_id);
+        Some(new_id)
+    }
+
+    pub fn reorder_layer(&mut self, id: Uuid, target_index: usize) -> bool {
+        if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
+            let layer = self.layers.remove(pos);
+            let bounded_idx = target_index.min(self.layers.len());
+            self.layers.insert(bounded_idx, layer);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn flip_layer_horizontal(&mut self, id: Uuid) {
+        if let Some(l) = self.find_layer_mut(id) {
+            l.transform.flip_x = !l.transform.flip_x;
+            if let LayerKind::Pixel { ref mut pixels, width, height, .. } = l.kind {
+                if let Some(px) = pixels {
+                    let w = width;
+                    let h = height;
+                    for y in 0..h {
+                        for x in 0..(w / 2) {
+                            let left = (y * w + x) * 4;
+                            let right = (y * w + (w - 1 - x)) * 4;
+                            for c in 0..4 {
+                                px.swap(left + c, right + c);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn flip_layer_vertical(&mut self, id: Uuid) {
+        if let Some(l) = self.find_layer_mut(id) {
+            l.transform.flip_y = !l.transform.flip_y;
+            if let LayerKind::Pixel { ref mut pixels, width, height, .. } = l.kind {
+                if let Some(px) = pixels {
+                    let w = width;
+                    let h = height;
+                    let row_bytes = w * 4;
+                    for y in 0..(h / 2) {
+                        let top = y * row_bytes;
+                        let bottom = (h - 1 - y) * row_bytes;
+                        for b in 0..row_bytes {
+                            px.swap(top + b, bottom + b);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn flip_canvas_horizontal(&mut self) {
+        let w = self.width as f64;
+        for l in &mut self.layers {
+            l.transform.flip_x = !l.transform.flip_x;
+            l.transform.origin.x = w - (l.transform.origin.x + l.transform.size.width);
+        }
+        for g in &mut self.guides {
+            if g.axis == GuideAxis::Vertical {
+                g.position = w - g.position;
+            }
+        }
+    }
+
+    pub fn flip_canvas_vertical(&mut self) {
+        let h = self.height as f64;
+        for l in &mut self.layers {
+            l.transform.flip_y = !l.transform.flip_y;
+            l.transform.origin.y = h - (l.transform.origin.y + l.transform.size.height);
+        }
+        for g in &mut self.guides {
+            if g.axis == GuideAxis::Horizontal {
+                g.position = h - g.position;
+            }
+        }
+    }
+
+    pub fn resize_canvas(&mut self, new_width: usize, new_height: usize, offset_x: f64, offset_y: f64) {
+        self.width = new_width;
+        self.height = new_height;
+        for l in &mut self.layers {
+            l.transform.origin.x += offset_x;
+            l.transform.origin.y += offset_y;
+        }
+        for g in &mut self.guides {
+            match g.axis {
+                GuideAxis::Horizontal => g.position += offset_y,
+                GuideAxis::Vertical => g.position += offset_x,
+            }
+        }
+    }
+
+    pub fn add_guide(&mut self, axis: GuideAxis, position: f64) -> CanvasGuide {
+        let guide = CanvasGuide {
+            id: Uuid::new_v4(),
+            axis,
+            position,
+        };
+        self.guides.push(guide.clone());
+        guide
+    }
+
+    pub fn clear_guides(&mut self) {
+        self.guides.clear();
+    }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::transform::{LayerTransform, Point, Size};
+
+    #[test]
+    fn test_document_layer_operations() {
+        let mut doc = Document::new(800, 600, 72.0);
+        let l1 = Layer::new_pixel("Camada 1".to_string(), 100, 100, LayerTransform::new(Point::new(0.0, 0.0), Size::new(100.0, 100.0)));
+        let l1_id = l1.id;
+        doc.add_layer(l1);
+
+        assert_eq!(doc.layers.len(), 1);
+        let dup_id = doc.duplicate_layer(l1_id).expect("Duplicate failed");
+        assert_eq!(doc.layers.len(), 2);
+        assert_eq!(doc.layers[1].name, "Camada 1 (Cópia)");
+        assert_eq!(doc.active_layer_id, Some(dup_id));
+
+        doc.flip_layer_horizontal(l1_id);
+        assert!(doc.find_layer(l1_id).unwrap().transform.flip_x);
+
+        doc.flip_canvas_horizontal();
+        let g = doc.add_guide(GuideAxis::Vertical, 200.0);
+        assert_eq!(doc.guides.len(), 1);
+        assert_eq!(g.position, 200.0);
+
+        doc.resize_canvas(1000, 800, 100.0, 100.0);
+        assert_eq!(doc.width, 1000);
+        assert_eq!(doc.height, 800);
+        assert_eq!(doc.guides[0].position, 300.0);
+
+        doc.clear_guides();
+        assert_eq!(doc.guides.len(), 0);
+    }
+}
+
