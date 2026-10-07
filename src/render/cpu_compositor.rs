@@ -210,6 +210,19 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
         }
         return;
     }
+    if adjustment.kind == AdjustmentKind::MotionBlur {
+        let distance = adjustment
+            .motion_distance
+            .unwrap_or(10.0)
+            .clamp(1.0, 2_000.0) as f32;
+        let angle = adjustment.motion_angle.unwrap_or(0.0) as f32;
+        let blurred = motion_blur(surface, distance, angle);
+        for (destination, source) in surface.pixels.iter_mut().zip(blurred) {
+            *destination = (*destination as f32 + (source as f32 - *destination as f32) * opacity)
+                .round() as u8;
+        }
+        return;
+    }
     if adjustment.kind == AdjustmentKind::AddNoise {
         let amount = (adjustment.noise_amount.unwrap_or(10.0) / 100.0).clamp(0.0, 1.0) as f32;
         let seed = adjustment.noise_seed.unwrap_or(0);
@@ -293,6 +306,35 @@ fn gaussian_blur(surface: &CompositeSurface, sigma: f32) -> Vec<u8> {
                         horizontal[(sample_y * surface.width + x) * 4 + channel] * weight / total;
                 }
                 result[(y * surface.width + x) * 4 + channel] = value.round() as u8;
+            }
+        }
+    }
+    result
+}
+
+fn motion_blur(surface: &CompositeSurface, distance: f32, angle_degrees: f32) -> Vec<u8> {
+    let angle = angle_degrees.to_radians();
+    let dx = angle.cos();
+    let dy = angle.sin();
+    let samples = distance.ceil().min(256.0) as usize + 1;
+    let mut result = vec![0; surface.pixels.len()];
+    for y in 0..surface.height {
+        for x in 0..surface.width {
+            for channel in 0..4 {
+                let mut value = 0.0;
+                for sample in 0..samples {
+                    let t = sample as f32 / (samples - 1).max(1) as f32 - 0.5;
+                    let sample_x = (x as f32 + dx * distance * t).round() as isize;
+                    let sample_y = (y as f32 + dy * distance * t).round() as isize;
+                    let sample_x =
+                        sample_x.clamp(0, surface.width.saturating_sub(1) as isize) as usize;
+                    let sample_y =
+                        sample_y.clamp(0, surface.height.saturating_sub(1) as isize) as usize;
+                    value +=
+                        surface.pixels[(sample_y * surface.width + sample_x) * 4 + channel] as f32;
+                }
+                result[(y * surface.width + x) * 4 + channel] =
+                    (value / samples as f32).round() as u8;
             }
         }
     }
@@ -1297,5 +1339,33 @@ mod tests {
         assert_eq!(first[0], first[1]);
         assert_eq!(first[1], first[2]);
         assert_eq!(first[3], 255);
+    }
+
+    #[test]
+    fn applies_horizontal_motion_blur_adjustment() {
+        let mut document = Document::new(3, 1, 72.0);
+        let mut pixels = Layer::new_pixel(
+            "pixels".to_string(),
+            3,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(3.0, 1.0)),
+        );
+        if let LayerKind::Pixel { pixels: buffer, .. } = &mut pixels.kind {
+            *buffer = Some(vec![0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 0, 255]);
+        }
+        document.add_layer(pixels);
+        let mut motion = LayerAdjustment::new(AdjustmentKind::MotionBlur);
+        motion.motion_angle = Some(0.0);
+        motion.motion_distance = Some(2.0);
+        document.add_layer(Layer::new_adjustment(
+            "motion".to_string(),
+            motion,
+            LayerTransform::new(Point::ZERO, Size::new(3.0, 1.0)),
+        ));
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert!(surface.pixels[0] > 0);
+        assert!(surface.pixels[8] > 0);
+        assert_eq!(surface.pixels[3], 255);
     }
 }
