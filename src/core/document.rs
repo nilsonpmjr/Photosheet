@@ -463,4 +463,48 @@ mod tests {
         assert_eq!(doc.active_layer().unwrap().clipping_base_id, None);
         assert_eq!(doc.validate_layer_graph(), Ok(()));
     }
+
+    #[test]
+    fn parent_and_clipping_mutators_restore_the_previous_relationship_on_error() {
+        let mut doc = Document::new(10, 10, 72.0);
+        let group = Layer::new_group(
+            "group".to_string(),
+            LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+        );
+        let group_id = group.id;
+        doc.try_add_layer(group).unwrap();
+
+        let base = Layer::new_pixel(
+            "base".to_string(),
+            1,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+        );
+        let base_id = base.id;
+        doc.try_add_layer(base).unwrap();
+
+        let clipped = Layer::new_pixel(
+            "clipped".to_string(),
+            1,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+        );
+        let clipped_id = clipped.id;
+        doc.try_add_layer(clipped).unwrap();
+
+        doc.try_set_parent(base_id, Some(group_id)).unwrap();
+        assert_eq!(
+            doc.try_set_parent(group_id, Some(base_id)),
+            Err(LayerGraphError::ParentIsNotGroup)
+        );
+        assert_eq!(doc.find_layer(group_id).unwrap().parent_id, None);
+
+        doc.try_set_clipping_base(clipped_id, Some(base_id))
+            .unwrap();
+        assert_eq!(
+            doc.try_set_clipping_base(base_id, Some(clipped_id)),
+            Err(LayerGraphError::ClippingCycleOrDepth)
+        );
+        assert_eq!(doc.find_layer(base_id).unwrap().clipping_base_id, None);
+    }
 }
