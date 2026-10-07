@@ -310,6 +310,27 @@ impl PhotosheetWindow {
             let session = Rc::clone(&self.session);
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
+            layers_panel.connect_toggle_lock(move |id| {
+                let (layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    if let Some(doc) = s.document.as_mut() {
+                        if let Some(layer) = doc.find_layer_mut(id) {
+                            layer.is_locked = !layer.is_locked;
+                            s.is_dirty = true;
+                        }
+                    }
+                    match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    }
+                };
+                lp.update_layers(&layers, active_id);
+            });
+        }
+        {
+            let session = Rc::clone(&self.session);
+            let layers_panel = Rc::clone(&self.layers_panel);
+            let lp = Rc::clone(&layers_panel);
             layers_panel.connect_add_group(move || {
                 let (layers, active_id) = {
                     let mut s = session.borrow_mut();

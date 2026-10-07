@@ -24,6 +24,7 @@ pub struct LayersPanel {
     on_blend_mode_change: Rc<RefCell<Option<Box<dyn Fn(LayerBlendMode)>>>>,
     on_select_layer: Rc<RefCell<Option<Box<dyn Fn(Uuid)>>>>,
     on_toggle_visibility: Rc<RefCell<Option<Box<dyn Fn(Uuid)>>>>,
+    on_toggle_lock: Rc<RefCell<Option<Box<dyn Fn(Uuid)>>>>,
 }
 
 impl LayersPanel {
@@ -160,6 +161,7 @@ impl LayersPanel {
         let on_blend_mode_change = Rc::new(RefCell::new(None::<Box<dyn Fn(LayerBlendMode)>>));
         let on_select_layer = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
         let on_toggle_visibility = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
+        let on_toggle_lock = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
 
         // Callbacks de botões
         {
@@ -241,6 +243,7 @@ impl LayersPanel {
             on_blend_mode_change,
             on_select_layer,
             on_toggle_visibility,
+            on_toggle_lock,
         }
     }
 
@@ -280,6 +283,20 @@ impl LayersPanel {
                 }
             });
             row_box.append(&vis_btn);
+
+            let lock_icon = if layer.is_locked { "changes-prevent-symbolic" } else { "changes-allow-symbolic" };
+            let lock_btn = Button::builder()
+                .icon_name(lock_icon)
+                .tooltip_text(if layer.is_locked { "Desbloquear Camada" } else { "Bloquear Camada" })
+                .build();
+            lock_btn.add_css_class("flat");
+            let cb_lock = Rc::clone(&self.on_toggle_lock);
+            lock_btn.connect_clicked(move |_| {
+                if let Some(ref f) = *cb_lock.borrow() {
+                    f(id);
+                }
+            });
+            row_box.append(&lock_btn);
 
             // Ícone do tipo da camada
             let type_icon = if layer.is_group {
@@ -342,5 +359,9 @@ impl LayersPanel {
 
     pub fn connect_toggle_visibility<F: Fn(Uuid) + 'static>(&self, f: F) {
         *self.on_toggle_visibility.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn connect_toggle_lock<F: Fn(Uuid) + 'static>(&self, f: F) {
+        *self.on_toggle_lock.borrow_mut() = Some(Box::new(f));
     }
 }
