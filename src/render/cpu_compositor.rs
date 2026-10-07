@@ -82,31 +82,83 @@ impl CpuCompositor {
                 LayerKind::Adjustment(adjustment) => {
                     apply_adjustment(&mut output, adjustment, inherited_opacity * layer.opacity);
                 }
-                LayerKind::Shape(shape) => draw_shape(
-                    &mut output,
-                    shape,
-                    &layer.transform,
-                    layer.mask.as_ref(),
-                    inherited_opacity * layer.opacity,
-                    layer.blend_mode,
-                    layer.effects.as_ref(),
-                    layer
-                        .clipping_base_id
-                        .and_then(|id| by_id.get(&id).copied()),
-                    &by_id,
-                ),
-                LayerKind::Text(text) => draw_text(
-                    &mut output,
-                    text,
-                    &layer.transform,
-                    inherited_opacity * layer.opacity,
-                    layer.blend_mode,
-                    layer.effects.as_ref(),
-                    layer
-                        .clipping_base_id
-                        .and_then(|id| by_id.get(&id).copied()),
-                    &by_id,
-                ),
+                LayerKind::Shape {
+                    style,
+                    pixels,
+                    width,
+                    height,
+                    ..
+                } => {
+                    if let Some(pixels) = pixels {
+                        draw_layer(
+                            &mut output,
+                            pixels,
+                            *width,
+                            *height,
+                            &layer.transform,
+                            layer.mask.as_ref(),
+                            inherited_opacity * layer.opacity,
+                            layer.blend_mode,
+                            layer.effects.as_ref(),
+                            layer
+                                .clipping_base_id
+                                .and_then(|id| by_id.get(&id).copied()),
+                            &by_id,
+                        );
+                    } else {
+                        draw_shape(
+                            &mut output,
+                            style,
+                            &layer.transform,
+                            layer.mask.as_ref(),
+                            inherited_opacity * layer.opacity,
+                            layer.blend_mode,
+                            layer.effects.as_ref(),
+                            layer
+                                .clipping_base_id
+                                .and_then(|id| by_id.get(&id).copied()),
+                            &by_id,
+                        );
+                    }
+                }
+                LayerKind::Text {
+                    style,
+                    pixels,
+                    width,
+                    height,
+                    ..
+                } => {
+                    if let Some(pixels) = pixels {
+                        draw_layer(
+                            &mut output,
+                            pixels,
+                            *width,
+                            *height,
+                            &layer.transform,
+                            layer.mask.as_ref(),
+                            inherited_opacity * layer.opacity,
+                            layer.blend_mode,
+                            layer.effects.as_ref(),
+                            layer
+                                .clipping_base_id
+                                .and_then(|id| by_id.get(&id).copied()),
+                            &by_id,
+                        );
+                    } else {
+                        draw_text(
+                            &mut output,
+                            style,
+                            &layer.transform,
+                            inherited_opacity * layer.opacity,
+                            layer.blend_mode,
+                            layer.effects.as_ref(),
+                            layer
+                                .clipping_base_id
+                                .and_then(|id| by_id.get(&id).copied()),
+                            &by_id,
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -989,28 +1041,29 @@ fn layer_alpha_at(
     if !visiting.insert(layer.id) {
         return 0.0;
     }
-    let result = match &layer.kind {
-        LayerKind::Pixel {
-            pixels: Some(pixels),
-            width,
-            height,
-            ..
-        } => {
+    let raster = match &layer.kind {
+        LayerKind::Pixel { pixels: Some(pixels), width, height, .. }
+        | LayerKind::Shape { pixels: Some(pixels), width, height, .. }
+        | LayerKind::Text { pixels: Some(pixels), width, height, .. } => Some((pixels, *width, *height)),
+        _ => None,
+    };
+    let result = match raster {
+        Some((pixels, width, height)) => {
             let Some((source_x, source_y)) = source_coordinate(
                 &layer.transform,
-                *width,
-                *height,
+                width,
+                height,
                 canvas_x as f64 + 0.5,
                 canvas_y as f64 + 0.5,
             ) else {
                 visiting.remove(&layer.id);
                 return 0.0;
             };
-            let mut alpha = pixels[(source_y * *width + source_x) * 4 + 3] as f32 / 255.0;
+            let mut alpha = pixels[(source_y * width + source_x) * 4 + 3] as f32 / 255.0;
             alpha *= effective_opacity(layer, by_id) as f32;
             if let Some(mask) = layer.mask.as_ref().filter(|mask| mask.enabled) {
                 alpha *= sample_mask(
-                    mask, *width, *height, source_x, source_y, canvas_x, canvas_y,
+                    mask, width, height, source_x, source_y, canvas_x, canvas_y,
                 );
             }
             if let Some(base_id) = layer.clipping_base_id {
@@ -1255,16 +1308,22 @@ mod tests {
             height,
             LayerTransform::new(Point::ZERO, Size::new(width as f64, height as f64)),
         );
-        layer.kind = LayerKind::Shape(LayerShapeStyle {
-            kind,
-            red: 1.0,
-            green: 0.0,
-            blue: 0.0,
-            corner_radius: 1.0,
-            line_width: None,
-            start: None,
-            end: None,
-        });
+        layer.kind = LayerKind::Shape {
+            style: LayerShapeStyle {
+                kind,
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                corner_radius: 1.0,
+                line_width: None,
+                start: None,
+                end: None,
+            },
+            image_file: None,
+            pixels: None,
+            width,
+            height,
+        };
         layer
     }
 
@@ -1310,6 +1369,23 @@ mod tests {
 
         let surface = CpuCompositor::render(&document).unwrap();
         assert_eq!(surface.pixels, vec![170, 0, 0, 192]);
+    }
+
+    #[test]
+    fn applies_clipping_to_shape_raster_fallback() {
+        let mut document = Document::new(1, 1, 72.0);
+        let mut base = shape_layer(ShapeKind::Rectangle, 1, 1);
+        let base_id = base.id;
+        if let LayerKind::Shape { pixels, .. } = &mut base.kind {
+            *pixels = Some(vec![255, 0, 0, 0]);
+        }
+        document.add_layer(base);
+
+        let mut clipped = pixel_layer("clipped", vec![0, 0, 255, 255]);
+        clipped.clipping_base_id = Some(base_id);
+        document.add_layer(clipped);
+
+        assert_eq!(CpuCompositor::render(&document).unwrap().pixels, vec![0, 0, 0, 0]);
     }
 
     #[test]
@@ -1512,7 +1588,7 @@ mod tests {
     fn renders_rounded_rectangle_and_line_layers() {
         let mut rounded_document = Document::new(4, 4, 72.0);
         let mut rounded = shape_layer(ShapeKind::RoundedRectangle, 4, 4);
-        if let LayerKind::Shape(style) = &mut rounded.kind {
+        if let LayerKind::Shape { style, .. } = &mut rounded.kind {
             style.corner_radius = 2.0;
         }
         rounded_document.add_layer(rounded);
@@ -1523,7 +1599,7 @@ mod tests {
 
         let mut line_document = Document::new(4, 4, 72.0);
         let mut line = shape_layer(ShapeKind::Line, 4, 4);
-        if let LayerKind::Shape(style) = &mut line.kind {
+        if let LayerKind::Shape { style, .. } = &mut line.kind {
             style.line_width = Some(1.0);
             style.start = Some(Point { x: 0.0, y: 0.0 });
             style.end = Some(Point { x: 1.0, y: 1.0 });
@@ -1543,14 +1619,20 @@ mod tests {
             1,
             LayerTransform::new(Point::ZERO, Size::new(48.0, 32.0)),
         );
-        layer.kind = LayerKind::Text(LayerTextStyle {
-            content: "A".to_string(),
-            font_size: 24.0,
-            red: 1.0,
-            green: 0.0,
-            blue: 0.0,
-            ..Default::default()
-        });
+        layer.kind = LayerKind::Text {
+            style: LayerTextStyle {
+                content: "A".to_string(),
+                font_size: 24.0,
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                ..Default::default()
+            },
+            image_file: None,
+            pixels: None,
+            width: 32,
+            height: 32,
+        };
         document.add_layer(layer);
 
         let surface = CpuCompositor::render(&document).unwrap();

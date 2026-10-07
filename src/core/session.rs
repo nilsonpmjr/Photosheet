@@ -5,7 +5,8 @@ use crate::core::adjustment::LayerAdjustment;
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::history::DocumentHistory;
-use crate::core::layer::Layer;
+use crate::core::layer::{Layer, LayerKind};
+use crate::core::shape::{LayerShapeStyle, ShapeKind as LayerShapeKind};
 use crate::core::transform::{LayerTransform, Point, Size};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -390,6 +391,63 @@ impl EditorSession {
         if let Some(doc) = self.document.as_mut() {
             doc.add_layer(layer);
         }
+        Some(id)
+    }
+
+    /// Cria uma shape com pixels de fallback e o estilo necessário para
+    /// reeditá-la depois de reabrir o projeto.
+    pub fn add_shape(&mut self, start: Point, end: Point) -> Option<Uuid> {
+        if !start.x.is_finite() || !start.y.is_finite() || !end.x.is_finite() || !end.y.is_finite() {
+            return None;
+        }
+        let settings = self.shape_settings.clone();
+        let origin = Point { x: start.x.min(end.x).floor(), y: start.y.min(end.y).floor() };
+        let width = (end.x - start.x).abs().ceil().max(1.0) as usize;
+        let height = (end.y - start.y).abs().ceil().max(1.0) as usize;
+        let mut pixels = vec![0; width.checked_mul(height)?.checked_mul(4)?];
+        crate::core::tools::ShapeEngine::render_shape(
+            0.0, 0.0, width as f64 - 1.0, height as f64 - 1.0, &settings, &mut pixels, width, height,
+        );
+        let (kind, line_width, start_point, end_point) = match settings.kind {
+            ShapeKind::Rectangle => (
+                if settings.corner_radius > 0.0 { LayerShapeKind::RoundedRectangle } else { LayerShapeKind::Rectangle },
+                None,
+                None,
+                None,
+            ),
+            ShapeKind::Ellipse => (LayerShapeKind::Ellipse, None, None, None),
+            ShapeKind::Line => (
+                LayerShapeKind::Line,
+                Some(settings.stroke_width.max(1.0)),
+                Some(Point { x: 0.0, y: 0.0 }),
+                Some(Point { x: 1.0, y: 1.0 }),
+            ),
+        };
+        self.push_history("Nova Forma");
+        let mut layer = Layer::new_pixel(
+            "Forma".to_string(),
+            width,
+            height,
+            LayerTransform::new(origin, Size { width: width as f64, height: height as f64 }),
+        );
+        layer.kind = LayerKind::Shape {
+            style: LayerShapeStyle {
+                kind,
+                red: settings.fill_color[0] as f64 / 255.0,
+                green: settings.fill_color[1] as f64 / 255.0,
+                blue: settings.fill_color[2] as f64 / 255.0,
+                corner_radius: settings.corner_radius,
+                line_width,
+                start: start_point,
+                end: end_point,
+            },
+            image_file: None,
+            pixels: Some(pixels),
+            width,
+            height,
+        };
+        let id = layer.id;
+        self.document.as_mut()?.add_layer(layer);
         Some(id)
     }
 

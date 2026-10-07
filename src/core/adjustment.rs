@@ -68,9 +68,15 @@ pub struct LevelsChannel {
     pub out_white: f64,
 }
 
-fn default_zero() -> f64 { 0.0 }
-fn default_one() -> f64 { 1.0 }
-fn default_255() -> f64 { 255.0 }
+fn default_zero() -> f64 {
+    0.0
+}
+fn default_one() -> f64 {
+    1.0
+}
+fn default_255() -> f64 {
+    255.0
+}
 
 impl Default for LevelsChannel {
     fn default() -> Self {
@@ -194,13 +200,19 @@ pub struct LayerAdjustment {
     pub curves: CurvesSettings,
     #[serde(rename = "exposureSettings", skip_serializing_if = "Option::is_none")]
     pub exposure_settings: Option<ExposureSettings>,
-    #[serde(rename = "gradientMapSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "gradientMapSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub gradient_map_settings: Option<GradientMapSettings>,
     #[serde(rename = "grainSettings", skip_serializing_if = "Option::is_none")]
     pub grain_settings: Option<GrainSettings>,
     #[serde(rename = "blackWhiteSettings", skip_serializing_if = "Option::is_none")]
     pub black_white_settings: Option<BlackWhiteSettings>,
-    #[serde(rename = "colorBalanceSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "colorBalanceSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub color_balance_settings: Option<ColorBalanceSettings>,
     #[serde(rename = "blurRadius", skip_serializing_if = "Option::is_none")]
     pub blur_radius: Option<f64>,
@@ -219,6 +231,95 @@ pub struct LayerAdjustment {
 }
 
 impl LayerAdjustment {
+    /// Reject non-finite adjustment settings before they reach the renderer or
+    /// are persisted in a `.comp` manifest.
+    pub fn is_valid(&self) -> bool {
+        let finite = |value: f64| value.is_finite();
+        let channel_valid = |channel: &LevelsChannel| {
+            [
+                channel.in_black,
+                channel.in_gamma,
+                channel.in_white,
+                channel.out_black,
+                channel.out_white,
+            ]
+            .into_iter()
+            .all(finite)
+                && (0.0..=255.0).contains(&channel.in_black)
+                && (0.01..=10.0).contains(&channel.in_gamma)
+                && (0.0..=255.0).contains(&channel.in_white)
+                && channel.in_black < channel.in_white
+                && (0.0..=255.0).contains(&channel.out_black)
+                && (0.0..=255.0).contains(&channel.out_white)
+        };
+        let curve_valid = |points: &[CurvePoint]| {
+            !points.is_empty()
+                && points.len() <= 64
+                && points.iter().all(|point| {
+                    finite(point.x)
+                        && finite(point.y)
+                        && (0.0..=1.0).contains(&point.x)
+                        && (0.0..=1.0).contains(&point.y)
+                })
+                && points.windows(2).all(|pair| pair[0].x <= pair[1].x)
+        };
+        let levels = &self.levels;
+        let curves = &self.curves;
+        [self.hue, self.saturation, self.lightness]
+            .into_iter()
+            .all(finite)
+            && (-360.0..=360.0).contains(&self.hue)
+            && (-100.0..=100.0).contains(&self.saturation)
+            && (-100.0..=100.0).contains(&self.lightness)
+            && channel_valid(&levels.rgb)
+            && channel_valid(&levels.red)
+            && channel_valid(&levels.green)
+            && channel_valid(&levels.blue)
+            && curve_valid(&curves.rgb)
+            && curve_valid(&curves.red)
+            && curve_valid(&curves.green)
+            && curve_valid(&curves.blue)
+            && self.hsv_settings.as_ref().is_none_or(|settings| {
+                [settings.hue, settings.saturation, settings.lightness]
+                    .into_iter()
+                    .all(finite)
+            })
+            && self.exposure_settings.as_ref().is_none_or(|settings| {
+                [settings.exposure, settings.offset, settings.gamma]
+                    .into_iter()
+                    .all(finite)
+                    && settings.gamma > 0.0
+            })
+            && self.grain_settings.as_ref().is_none_or(|settings| {
+                [settings.amount, settings.roughness]
+                    .into_iter()
+                    .all(finite)
+            })
+            && self.black_white_settings.as_ref().is_none_or(|settings| {
+                [
+                    settings.reds,
+                    settings.yellows,
+                    settings.greens,
+                    settings.cyans,
+                    settings.blues,
+                    settings.magentas,
+                ]
+                .into_iter()
+                .all(finite)
+            })
+            && self
+                .blur_radius
+                .is_none_or(|value| finite(value) && (0.1..=250.0).contains(&value))
+            && self
+                .motion_angle
+                .is_none_or(|value| finite(value) && (-90.0..=90.0).contains(&value))
+            && self
+                .motion_distance
+                .is_none_or(|value| finite(value) && (1.0..=2_000.0).contains(&value))
+            && self
+                .noise_amount
+                .is_none_or(|value| finite(value) && (0.1..=400.0).contains(&value))
+    }
     pub fn new(kind: AdjustmentKind) -> Self {
         Self {
             kind,
@@ -244,7 +345,13 @@ impl LayerAdjustment {
         }
     }
 
-    pub fn levels(in_black: f64, in_gamma: f64, in_white: f64, out_black: f64, out_white: f64) -> Self {
+    pub fn levels(
+        in_black: f64,
+        in_gamma: f64,
+        in_white: f64,
+        out_black: f64,
+        out_white: f64,
+    ) -> Self {
         let mut adj = Self::new(AdjustmentKind::Levels);
         adj.levels.rgb = LevelsChannel {
             in_black,
@@ -266,7 +373,11 @@ impl LayerAdjustment {
 
     pub fn exposure(exposure: f64, offset: f64, gamma: f64) -> Self {
         let mut adj = Self::new(AdjustmentKind::Exposure);
-        adj.exposure_settings = Some(ExposureSettings { exposure, offset, gamma });
+        adj.exposure_settings = Some(ExposureSettings {
+            exposure,
+            offset,
+            gamma,
+        });
         adj
     }
 
@@ -296,4 +407,3 @@ impl LayerAdjustment {
         adj
     }
 }
-

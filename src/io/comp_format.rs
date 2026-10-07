@@ -78,25 +78,41 @@ impl CompPackage {
                 });
             }
 
+            // Shape and text layers are pixel layers with editable metadata in
+            // Compositor. Decode their PNG before selecting the layer kind so
+            // the fallback appearance survives a Photosheet round trip.
+            let mut pixels = None;
+            let mut width = record.transform.size.width as usize;
+            let mut height = record.transform.size.height as usize;
+            if let Some(ref image_file) = record.image_file {
+                let image_path = images_dir.join(image_file);
+                let (data, image_width, image_height) = decode_rgba_png(&image_path)?;
+                pixels = Some(data);
+                width = image_width;
+                height = image_height;
+            }
+
             let kind = if record.is_group == Some(true) {
                 LayerKind::Group
             } else if let Some(adj) = record.adjustment {
                 LayerKind::Adjustment(adj)
             } else if let Some(shape) = record.shape {
-                LayerKind::Shape(shape)
-            } else if let Some(text) = record.text {
-                LayerKind::Text(text)
-            } else {
-                let mut pixels = None;
-                let mut width = record.transform.size.width as usize;
-                let mut height = record.transform.size.height as usize;
-                if let Some(ref img_file) = record.image_file {
-                    let img_path = images_dir.join(img_file);
-                    let (data, image_width, image_height) = decode_rgba_png(&img_path)?;
-                    pixels = Some(data);
-                    width = image_width;
-                    height = image_height;
+                LayerKind::Shape {
+                    style: shape,
+                    image_file: record.image_file.clone(),
+                    pixels,
+                    width,
+                    height,
                 }
+            } else if let Some(text) = record.text {
+                LayerKind::Text {
+                    style: text,
+                    image_file: record.image_file.clone(),
+                    pixels,
+                    width,
+                    height,
+                }
+            } else {
                 LayerKind::Pixel {
                     image_file: record.image_file.clone(),
                     pixels,
@@ -158,11 +174,33 @@ impl CompPackage {
                 LayerKind::Adjustment(adj) => {
                     adjustment = Some(adj.clone());
                 }
-                LayerKind::Shape(s) => {
-                    shape = Some(s.clone());
+                LayerKind::Shape {
+                    style,
+                    pixels,
+                    width,
+                    height,
+                    ..
+                } => {
+                    shape = Some(style.clone());
+                    if let Some(pixels) = pixels {
+                        let filename = image_filename(layer.id);
+                        encode_rgba_png(pixels, *width, *height, &images_dir.join(&filename))?;
+                        image_file = Some(filename);
+                    }
                 }
-                LayerKind::Text(t) => {
-                    text = Some(t.clone());
+                LayerKind::Text {
+                    style,
+                    pixels,
+                    width,
+                    height,
+                    ..
+                } => {
+                    text = Some(style.clone());
+                    if let Some(pixels) = pixels {
+                        let filename = image_filename(layer.id);
+                        encode_rgba_png(pixels, *width, *height, &images_dir.join(&filename))?;
+                        image_file = Some(filename);
+                    }
                 }
                 LayerKind::Group => {}
             }
@@ -426,6 +464,25 @@ fn validate_layer_version_fields(
             return Err(CompError::InvalidManifest("Máscara inválida".to_string()));
         }
     }
+    if let Some(adjustment) = &record.adjustment {
+        if version < 7 || is_group || record.image_file.is_some() || !adjustment.is_valid() {
+            return Err(CompError::InvalidManifest(
+                "Camada de ajuste inválida".to_string(),
+            ));
+        }
+        if version < 9
+            && matches!(
+                adjustment.kind,
+                crate::core::adjustment::AdjustmentKind::GaussianBlur
+                    | crate::core::adjustment::AdjustmentKind::MotionBlur
+                    | crate::core::adjustment::AdjustmentKind::AddNoise
+            )
+        {
+            return Err(CompError::InvalidManifest(
+                "Ajuste não suportado nesta versão".to_string(),
+            ));
+        }
+    }
     if record.mask_enabled.is_some() && record.mask_file.is_none()
         || record.mask_placement.is_some()
             && (record.mask_file.is_none()
@@ -439,9 +496,15 @@ fn validate_layer_version_fields(
     }
 
     if let Some(text) = &record.text {
-        if version < 10 && text.color_runs.is_some() || version < 11 && text.font_runs.is_some() {
+        if !text.is_valid()
+            || record.image_file.is_none()
+            || is_group
+            || record.adjustment.is_some()
+            || version < 10 && text.color_runs.is_some()
+            || version < 11 && text.font_runs.is_some()
+        {
             return Err(CompError::InvalidManifest(
-                "Runs de texto não suportados nesta versão".to_string(),
+                "Metadados de texto inválidos ou não suportados nesta versão".to_string(),
             ));
         }
     }
@@ -525,6 +588,8 @@ fn validate_guides(manifest: &ProjectManifest) -> Result<(), CompError> {
 mod tests {
     use super::*;
     use crate::core::blend::LayerBlendMode;
+    use crate::core::shape::{LayerShapeStyle, ShapeKind};
+    use crate::core::text::LayerTextStyle;
     use crate::core::transform::{LayerTransform, Point, Size};
 
     fn record(id: Uuid) -> ProjectLayerRecord {
@@ -605,6 +670,65 @@ mod tests {
         assert_eq!((*width, *height), (800, 600));
         assert_eq!(pixels.len(), 800 * 600 * 4);
 
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn round_trips_shape_and_text_raster_fallbacks() {
+        let temp_dir = std::env::temp_dir().join(format!("test-editable-comp-{}", Uuid::new_v4()));
+        let comp_path = temp_dir.join("editable.comp");
+        let transform = LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0));
+        let mut document = Document::new(1, 1, 72.0);
+
+        let mut shape = Layer::new_pixel("Shape".to_string(), 1, 1, transform.clone());
+        shape.kind = LayerKind::Shape {
+            style: LayerShapeStyle {
+                kind: ShapeKind::Rectangle,
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                corner_radius: 0.0,
+                line_width: None,
+                start: None,
+                end: None,
+            },
+            image_file: None,
+            pixels: Some(vec![255, 0, 0, 255]),
+            width: 1,
+            height: 1,
+        };
+        document.add_layer(shape);
+
+        let mut text = Layer::new_pixel("Text".to_string(), 1, 1, transform);
+        text.kind = LayerKind::Text {
+            style: LayerTextStyle {
+                content: "A".to_string(),
+                font_size: 16.0,
+                ..Default::default()
+            },
+            image_file: None,
+            pixels: Some(vec![0, 0, 255, 255]),
+            width: 1,
+            height: 1,
+        };
+        document.add_layer(text);
+
+        CompPackage::save(&document, &comp_path).unwrap();
+        let loaded = CompPackage::load(&comp_path).unwrap();
+        assert!(matches!(
+            loaded.layers[0].kind,
+            LayerKind::Shape {
+                pixels: Some(_),
+                ..
+            }
+        ));
+        assert!(matches!(
+            loaded.layers[1].kind,
+            LayerKind::Text {
+                pixels: Some(_),
+                ..
+            }
+        ));
         let _ = fs::remove_dir_all(temp_dir);
     }
 
