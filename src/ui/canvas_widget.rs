@@ -239,7 +239,32 @@ impl CanvasWidget {
             drawing_area.add_controller(drag);
         }
 
-        // 3. Controlador de Rolagem (Zoom com Roda do Mouse)
+        // 3. Clique com a ferramenta Texto cria uma layer editável com o
+        // fallback raster que será salvo no pacote `.comp`.
+        {
+            let click = GestureClick::new();
+            let sess = Rc::clone(&session);
+            let area = drawing_area.clone();
+            let on_mod = Rc::clone(&on_document_modified);
+            click.connect_pressed(move |_gesture, _count, x, y| {
+                let mut s = sess.borrow_mut();
+                if s.active_tool != NavigationTool::Type {
+                    return;
+                }
+                let (doc_x, doc_y) = Self::screen_to_doc(
+                    &s, x, y, area.width() as f64, area.height() as f64,
+                );
+                if s.add_text(Point { x: doc_x, y: doc_y }, "Text".to_string()).is_some() {
+                    area.queue_draw();
+                    if let Some(callback) = on_mod.borrow().as_ref() {
+                        callback();
+                    }
+                }
+            });
+            drawing_area.add_controller(click);
+        }
+
+        // 4. Controlador de Rolagem (Zoom com Roda do Mouse)
         {
             let scroll = EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
             let sess = Rc::clone(&session);

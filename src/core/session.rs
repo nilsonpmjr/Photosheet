@@ -7,6 +7,7 @@ use crate::core::document::Document;
 use crate::core::history::DocumentHistory;
 use crate::core::layer::{Layer, LayerKind};
 use crate::core::shape::{LayerShapeStyle, ShapeKind as LayerShapeKind};
+use crate::core::text::LayerTextStyle;
 use crate::core::transform::{LayerTransform, Point, Size};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -451,6 +452,38 @@ impl EditorSession {
         Some(id)
     }
 
+    pub fn add_text(&mut self, origin: Point, content: String) -> Option<Uuid> {
+        if !origin.x.is_finite() || !origin.y.is_finite() || content.trim().is_empty() {
+            return None;
+        }
+        let settings = &self.text_settings;
+        let style = LayerTextStyle {
+            content,
+            font_name: settings.font_family.clone(),
+            font_size: settings.font_size,
+            red: settings.color[0] as f64 / 255.0,
+            green: settings.color[1] as f64 / 255.0,
+            blue: settings.color[2] as f64 / 255.0,
+            ..Default::default()
+        };
+        let (pixels, width, height) = crate::core::tools::TypeEngine::rasterize_text(&style)?;
+        self.push_history("Novo Texto");
+        let mut layer = Layer::new_pixel(
+            "Texto".to_string(), width, height,
+            LayerTransform::new(origin, Size { width: width as f64, height: height as f64 }),
+        );
+        layer.kind = LayerKind::Text {
+            style,
+            image_file: None,
+            pixels: Some(pixels),
+            width,
+            height,
+        };
+        let id = layer.id;
+        self.document.as_mut()?.add_layer(layer);
+        Some(id)
+    }
+
     pub fn delete_active_layer(&mut self) -> bool {
         let active_id = match self.document.as_ref().and_then(|d| d.active_layer_id) {
             Some(id) => id,
@@ -658,5 +691,21 @@ mod tests {
         assert_eq!(layer.transform.origin, Point { x: 10.0, y: 20.0 });
         assert_eq!((*width, *height), (20, 30));
         assert_eq!(pixels.len(), 20 * 30 * 4);
+    }
+
+    #[test]
+    fn adds_editable_text_with_raster_fallback() {
+        let mut session = EditorSession::with_document(Document::new(100, 100, 72.0));
+        session.text_settings.font_size = 18.0;
+        session.text_settings.color = [20, 40, 60, 255];
+        let id = session.add_text(Point { x: 4.0, y: 8.0 }, "Hi".to_string()).unwrap();
+        let layer = session.document.as_ref().unwrap().find_layer(id).unwrap();
+        let LayerKind::Text { style, pixels: Some(pixels), width, height, .. } = &layer.kind else {
+            panic!("expected editable text");
+        };
+        assert_eq!(style.content, "Hi");
+        assert_eq!(style.font_size, 18.0);
+        assert_eq!(layer.transform.origin, Point { x: 4.0, y: 8.0 });
+        assert_eq!(pixels.len(), width * height * 4);
     }
 }
