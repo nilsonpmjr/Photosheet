@@ -2,7 +2,7 @@
 //! Traduzido de Compositor/UI/NavigationToolHeader.swift.
 
 use crate::core::session::{
-    BrushSettings, NavigationTool, ShapeKind, ShapeToolSettings, WandSettings,
+    BrushSettings, NavigationTool, ShapeKind, ShapeToolSettings, TextToolSettings, WandSettings,
 };
 use gtk4::prelude::*;
 use gtk4::{
@@ -25,6 +25,8 @@ pub struct ToolOptionsBar {
     move_box: GtkBox,
     shape_settings: Rc<RefCell<ShapeToolSettings>>,
     on_shape_settings_change: Rc<RefCell<Option<Box<dyn Fn(ShapeToolSettings)>>>>,
+    text_settings: Rc<RefCell<TextToolSettings>>,
+    on_text_settings_change: Rc<RefCell<Option<Box<dyn Fn(TextToolSettings)>>>>,
 }
 
 impl ToolOptionsBar {
@@ -147,11 +149,24 @@ impl ToolOptionsBar {
 
         // 5. Opções de Texto
         let text_box = GtkBox::new(Orientation::Horizontal, 8);
+        let text_settings = Rc::new(RefCell::new(TextToolSettings::default()));
+        let on_text_settings_change = Rc::new(RefCell::new(None::<Box<dyn Fn(TextToolSettings)>>));
         text_box.append(&Label::new(Some("Tamanho da Fonte:")));
         let font_adj = Adjustment::new(36.0, 6.0, 288.0, 1.0, 6.0, 0.0);
         let font_spin = SpinButton::new(Some(&font_adj), 1.0, 0);
         text_box.append(&font_spin);
         text_box.append(&Label::new(Some("pt")));
+
+        {
+            let settings = Rc::clone(&text_settings);
+            let callback = Rc::clone(&on_text_settings_change);
+            font_spin.connect_value_changed(move |spin| {
+                settings.borrow_mut().font_size = spin.value();
+                if let Some(callback) = callback.borrow().as_ref() {
+                    callback(settings.borrow().clone());
+                }
+            });
+        }
 
         options_stack.add_named(&text_box, Some("text"));
 
@@ -191,6 +206,8 @@ impl ToolOptionsBar {
             move_box,
             shape_settings,
             on_shape_settings_change,
+            text_settings,
+            on_text_settings_change,
         }
     }
 
@@ -214,5 +231,9 @@ impl ToolOptionsBar {
 
     pub fn connect_shape_settings_change<F: Fn(ShapeToolSettings) + 'static>(&self, f: F) {
         *self.on_shape_settings_change.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn connect_text_settings_change<F: Fn(TextToolSettings) + 'static>(&self, f: F) {
+        *self.on_text_settings_change.borrow_mut() = Some(Box::new(f));
     }
 }
