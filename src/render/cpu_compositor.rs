@@ -8,6 +8,7 @@ use crate::core::adjustment::{AdjustmentKind, CurvePoint, LayerAdjustment, Level
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::layer::{Layer, LayerKind};
+use crate::core::shape::{LayerShapeStyle, ShapeKind};
 use crate::core::transform::{LayerTransform, Point};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -77,6 +78,18 @@ impl CpuCompositor {
                 LayerKind::Adjustment(adjustment) => {
                     apply_adjustment(&mut output, adjustment, inherited_opacity * layer.opacity);
                 }
+                LayerKind::Shape(shape) => draw_shape(
+                    &mut output,
+                    shape,
+                    &layer.transform,
+                    layer.mask.as_ref(),
+                    inherited_opacity * layer.opacity,
+                    layer.blend_mode,
+                    layer
+                        .clipping_base_id
+                        .and_then(|id| by_id.get(&id).copied()),
+                    &by_id,
+                ),
                 _ => {}
             }
         }
@@ -372,6 +385,101 @@ fn draw_layer(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn draw_shape(
+    destination: &mut CompositeSurface,
+    shape: &LayerShapeStyle,
+    transform: &LayerTransform,
+    mask: Option<&crate::core::mask::LayerMask>,
+    opacity: f64,
+    blend_mode: LayerBlendMode,
+    clipping_base: Option<&Layer>,
+    by_id: &HashMap<Uuid, &Layer>,
+) {
+    if opacity <= 0.0 {
+        return;
+    }
+    let color = [
+        shape.red.clamp(0.0, 1.0) as f32,
+        shape.green.clamp(0.0, 1.0) as f32,
+        shape.blue.clamp(0.0, 1.0) as f32,
+    ];
+    for y in 0..destination.height {
+        for x in 0..destination.width {
+            let Some((local_x, local_y)) =
+                normalized_coordinate(transform, x as f64 + 0.5, y as f64 + 0.5)
+            else {
+                continue;
+            };
+            if !shape_contains(
+                shape,
+                local_x,
+                local_y,
+                transform.size.width,
+                transform.size.height,
+            ) {
+                continue;
+            }
+            let mut alpha = opacity.clamp(0.0, 1.0) as f32;
+            if let Some(mask) = mask.filter(|mask| mask.enabled) {
+                let source_x = (local_x * mask.width as f64).floor() as usize;
+                let source_y = (local_y * mask.height as f64).floor() as usize;
+                alpha *= sample_mask(
+                    mask,
+                    mask.width,
+                    mask.height,
+                    source_x.min(mask.width - 1),
+                    source_y.min(mask.height - 1),
+                    x,
+                    y,
+                );
+            }
+            if let Some(base) = clipping_base {
+                alpha *= layer_alpha_at(base, x, y, by_id, &mut HashSet::new());
+            }
+            let index = (y * destination.width + x) * 4;
+            composite_pixel(
+                &mut destination.pixels[index..index + 4],
+                color,
+                alpha,
+                blend_mode,
+            );
+        }
+    }
+}
+
+fn shape_contains(shape: &LayerShapeStyle, x: f64, y: f64, width: f64, height: f64) -> bool {
+    match shape.kind {
+        ShapeKind::Rectangle => true,
+        ShapeKind::Ellipse => (x - 0.5).powi(2) + (y - 0.5).powi(2) <= 0.25,
+        ShapeKind::RoundedRectangle => {
+            let radius = (shape.corner_radius.max(0.0) / width.min(height).max(1.0)).min(0.5);
+            if x >= radius && x <= 1.0 - radius || y >= radius && y <= 1.0 - radius {
+                true
+            } else {
+                let cx = if x < 0.5 { radius } else { 1.0 - radius };
+                let cy = if y < 0.5 { radius } else { 1.0 - radius };
+                (x - cx).powi(2) + (y - cy).powi(2) <= radius.powi(2)
+            }
+        }
+        ShapeKind::Line => {
+            let start = shape.start.unwrap_or(Point { x: 0.0, y: 0.0 });
+            let end = shape.end.unwrap_or(Point { x: 1.0, y: 1.0 });
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
+            let length_squared = dx * dx + dy * dy;
+            let t = if length_squared > 0.0 {
+                (((x - start.x) * dx + (y - start.y) * dy) / length_squared).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let distance =
+                ((x - (start.x + t * dx)).powi(2) + (y - (start.y + t * dy)).powi(2)).sqrt();
+            distance <= shape.line_width.unwrap_or(1.0) / width.min(height).max(1.0) / 2.0
+        }
+    }
+}
+
 fn layer_alpha_at(
     layer: &Layer,
     canvas_x: usize,
@@ -445,6 +553,17 @@ fn source_coordinate(
     canvas_x: f64,
     canvas_y: f64,
 ) -> Option<(usize, usize)> {
+    let (normalized_x, normalized_y) = normalized_coordinate(transform, canvas_x, canvas_y)?;
+    let source_x = (normalized_x * width as f64).floor() as usize;
+    let source_y = (normalized_y * height as f64).floor() as usize;
+    (source_x < width && source_y < height).then_some((source_x, source_y))
+}
+
+fn normalized_coordinate(
+    transform: &LayerTransform,
+    canvas_x: f64,
+    canvas_y: f64,
+) -> Option<(f64, f64)> {
     let center = transform.center();
     let angle = -transform.radians();
     let dx = canvas_x - center.x;
@@ -470,9 +589,7 @@ fn source_coordinate(
     } else {
         normalized_y
     };
-    let source_x = (normalized_x * width as f64).floor() as usize;
-    let source_y = (normalized_y * height as f64).floor() as usize;
-    (source_x < width && source_y < height).then_some((source_x, source_y))
+    Some((normalized_x, normalized_y))
 }
 
 fn sample_mask(
@@ -629,6 +746,26 @@ mod tests {
             unreachable!();
         };
         *buffer = Some(pixels);
+        layer
+    }
+
+    fn shape_layer(kind: ShapeKind, width: usize, height: usize) -> Layer {
+        let mut layer = Layer::new_pixel(
+            "shape".to_string(),
+            width,
+            height,
+            LayerTransform::new(Point::ZERO, Size::new(width as f64, height as f64)),
+        );
+        layer.kind = LayerKind::Shape(LayerShapeStyle {
+            kind,
+            red: 1.0,
+            green: 0.0,
+            blue: 0.0,
+            corner_radius: 1.0,
+            line_width: None,
+            start: None,
+            end: None,
+        });
         layer
     }
 
@@ -838,5 +975,47 @@ mod tests {
         let black_and_white =
             adjusted_rgb(&LayerAdjustment::black_and_white(), [1.0, 0.0, 0.0]).unwrap();
         assert_eq!(black_and_white, [0.3; 3]);
+    }
+
+    #[test]
+    fn renders_vector_rectangle_and_ellipse_layers() {
+        let mut rectangle_document = Document::new(2, 2, 72.0);
+        rectangle_document.add_layer(shape_layer(ShapeKind::Rectangle, 2, 2));
+        assert_eq!(
+            CpuCompositor::render(&rectangle_document).unwrap().pixels,
+            vec![255, 0, 0, 255].repeat(4)
+        );
+
+        let mut ellipse_document = Document::new(4, 4, 72.0);
+        ellipse_document.add_layer(shape_layer(ShapeKind::Ellipse, 4, 4));
+        let surface = CpuCompositor::render(&ellipse_document).unwrap();
+        assert_eq!(&surface.pixels[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&surface.pixels[20..24], &[255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn renders_rounded_rectangle_and_line_layers() {
+        let mut rounded_document = Document::new(4, 4, 72.0);
+        let mut rounded = shape_layer(ShapeKind::RoundedRectangle, 4, 4);
+        if let LayerKind::Shape(style) = &mut rounded.kind {
+            style.corner_radius = 2.0;
+        }
+        rounded_document.add_layer(rounded);
+        assert_eq!(
+            &CpuCompositor::render(&rounded_document).unwrap().pixels[0..4],
+            &[0, 0, 0, 0]
+        );
+
+        let mut line_document = Document::new(4, 4, 72.0);
+        let mut line = shape_layer(ShapeKind::Line, 4, 4);
+        if let LayerKind::Shape(style) = &mut line.kind {
+            style.line_width = Some(1.0);
+            style.start = Some(Point { x: 0.0, y: 0.0 });
+            style.end = Some(Point { x: 1.0, y: 1.0 });
+        }
+        line_document.add_layer(line);
+        let surface = CpuCompositor::render(&line_document).unwrap();
+        assert_eq!(&surface.pixels[0..4], &[255, 0, 0, 255]);
+        assert_eq!(&surface.pixels[12..16], &[0, 0, 0, 0]);
     }
 }
