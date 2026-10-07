@@ -5,6 +5,7 @@ use crate::core::adjustment::LayerAdjustment;
 use crate::core::document::Document;
 use crate::core::session::{EditorSession, NavigationTool};
 use crate::ui::adjustments_panel::AdjustmentsPanel;
+use crate::ui::canvas_widget::CanvasWidget;
 use crate::ui::dialogs::{FilterDialogs, LevelsDialog, NewDocumentDialog, NewDocumentParams};
 use crate::ui::header_bar::PhotosheetHeaderBar;
 use crate::ui::layers_panel::LayersPanel;
@@ -137,13 +138,18 @@ impl PhotosheetWindow {
         let mut session = self.session.borrow_mut();
         session.set_document(doc);
 
-        // Criar widget do canvas (placeholder de desenho para a aba)
-        let canvas_area = DrawingArea::new();
-        canvas_area.set_vexpand(true);
-        canvas_area.set_hexpand(true);
+        // Criar widget do canvas interativo com suporte a pan, zoom e pincel
+        let canvas_widget = CanvasWidget::new(Rc::clone(&self.session));
+        let lp = Rc::clone(&self.layers_panel);
+        let sess_ref = Rc::clone(&self.session);
+        canvas_widget.connect_document_modified(move || {
+            if let Some(doc) = &sess_ref.borrow().document {
+                lp.update_layers(&doc.layers, doc.active_layer_id);
+            }
+        });
 
         let title = format!("Sem Título ({}×{})", params.width, params.height);
-        let page = self.tab_view.append(&canvas_area);
+        let page = self.tab_view.append(&canvas_widget.container);
         page.set_title(&title);
 
         self.header_bar.set_title(&title);
@@ -200,12 +206,17 @@ impl PhotosheetWindow {
                     let mut s = session.borrow_mut();
                     s.set_document(doc);
 
-                    let canvas_area = DrawingArea::new();
-                    canvas_area.set_vexpand(true);
-                    canvas_area.set_hexpand(true);
+                    let canvas_widget = CanvasWidget::new(Rc::clone(&session));
+                    let lp = Rc::clone(&layers_panel);
+                    let sess_ref = Rc::clone(&session);
+                    canvas_widget.connect_document_modified(move || {
+                        if let Some(doc) = &sess_ref.borrow().document {
+                            lp.update_layers(&doc.layers, doc.active_layer_id);
+                        }
+                    });
 
                     let title = format!("Sem Título ({}×{})", params.width, params.height);
-                    let page = tab_view.append(&canvas_area);
+                    let page = tab_view.append(&canvas_widget.container);
                     page.set_title(&title);
 
                     header_bar.set_title(&title);
