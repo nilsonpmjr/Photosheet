@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Photosheet
+Comment=Editor de imagens profissional e composição para Linux
+Exec=photosheet %U
+Icon=photosheet
+Terminal=false
+Type=Application
+Categories=Graphics;2DGraphics;RasterGraphics;Photography;
+MimeType=image/png;image/jpeg;image/tiff;image/x-psd;image/vnd.adobe.photoshop;application/x-comp;
+StartupNotify=true
+StartupWMClass=org.photosheet.Photosheet
+Keywords=photoshop;compositor;image;photo;editor;design;layers;vulkan;

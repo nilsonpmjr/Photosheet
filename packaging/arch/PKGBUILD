@@ -1,0 +1,44 @@
+# Maintainer: Nilson Miranda <nilsonpmjr@gmail.com>
+pkgname=photosheet
+pkgver=1.4.5
+pkgrel=1
+pkgdesc="Native Linux port of Compositor image editor using GTK4, Rust and Vulkan"
+arch=('x86_64')
+url="https://github.com/nilsonpmjr/Photosheet"
+license=('MIT')
+depends=('gtk4' 'libadwaita' 'vulkan-driver' 'vulkan-icd-loader' 'gcc-libs' 'glibc')
+makedepends=('rust' 'cargo' 'clang' 'gcc')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$CARCH-unknown-linux-gnu"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release --all-features
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo test --frozen --all-features
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 target/release/photosheet "$pkgdir/usr/bin/photosheet"
+    install -Dm644 data/org.photosheet.Photosheet.desktop "$pkgdir/usr/share/applications/org.photosheet.Photosheet.desktop"
+
+    for size in 16x16 32x32 64x64 128x128 256x256 512x512; do
+        install -Dm644 "data/icons/hicolor/$size/apps/photosheet.png" \
+            "$pkgdir/usr/share/icons/hicolor/$size/apps/photosheet.png"
+    done
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE" 2>/dev/null || true
+}
