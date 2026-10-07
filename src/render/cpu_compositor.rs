@@ -201,6 +201,15 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
         return;
     }
     let opacity = opacity.clamp(0.0, 1.0) as f32;
+    if adjustment.kind == AdjustmentKind::GaussianBlur {
+        let radius = adjustment.blur_radius.unwrap_or(10.0).clamp(0.1, 250.0) as f32;
+        let blurred = gaussian_blur(surface, radius);
+        for (destination, source) in surface.pixels.iter_mut().zip(blurred) {
+            *destination = (*destination as f32 + (source as f32 - *destination as f32) * opacity)
+                .round() as u8;
+        }
+        return;
+    }
     for pixel in surface.pixels.chunks_exact_mut(4) {
         let original = [
             pixel[0] as f32 / 255.0,
@@ -218,6 +227,47 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
                 ((before + (after - before) * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
+}
+
+fn gaussian_blur(surface: &CompositeSurface, sigma: f32) -> Vec<u8> {
+    let radius = (sigma * 3.0).ceil().min(128.0) as isize;
+    let weights: Vec<f32> = (-radius..=radius)
+        .map(|offset| (-(offset * offset) as f32 / (2.0 * sigma * sigma)).exp())
+        .collect();
+    let total: f32 = weights.iter().sum();
+    let mut horizontal = vec![0.0_f32; surface.pixels.len()];
+    for y in 0..surface.height {
+        for x in 0..surface.width {
+            for channel in 0..4 {
+                for (weight_index, weight) in weights.iter().enumerate() {
+                    let sample_x = (x as isize + weight_index as isize - radius)
+                        .clamp(0, surface.width.saturating_sub(1) as isize)
+                        as usize;
+                    horizontal[(y * surface.width + x) * 4 + channel] +=
+                        surface.pixels[(y * surface.width + sample_x) * 4 + channel] as f32
+                            * weight
+                            / total;
+                }
+            }
+        }
+    }
+    let mut result = vec![0; surface.pixels.len()];
+    for y in 0..surface.height {
+        for x in 0..surface.width {
+            for channel in 0..4 {
+                let mut value = 0.0;
+                for (weight_index, weight) in weights.iter().enumerate() {
+                    let sample_y = (y as isize + weight_index as isize - radius)
+                        .clamp(0, surface.height.saturating_sub(1) as isize)
+                        as usize;
+                    value +=
+                        horizontal[(sample_y * surface.width + x) * 4 + channel] * weight / total;
+                }
+                result[(y * surface.width + x) * 4 + channel] = value.round() as u8;
+            }
+        }
+    }
+    result
 }
 
 fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3]> {
@@ -1169,5 +1219,31 @@ mod tests {
             .pixels
             .chunks_exact(4)
             .any(|pixel| pixel[0] > 0 && pixel[3] > 0));
+    }
+
+    #[test]
+    fn applies_gaussian_blur_adjustment() {
+        let mut document = Document::new(3, 1, 72.0);
+        let mut pixels = Layer::new_pixel(
+            "pixels".to_string(),
+            3,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(3.0, 1.0)),
+        );
+        if let LayerKind::Pixel { pixels: buffer, .. } = &mut pixels.kind {
+            *buffer = Some(vec![0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 0, 255]);
+        }
+        document.add_layer(pixels);
+        let adjustment = Layer::new_adjustment(
+            "blur".to_string(),
+            LayerAdjustment::gaussian_blur(1.0),
+            LayerTransform::new(Point::ZERO, Size::new(3.0, 1.0)),
+        );
+        document.add_layer(adjustment);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert!(surface.pixels[0] > 0);
+        assert!(surface.pixels[4] < 255 && surface.pixels[4] > surface.pixels[0]);
+        assert_eq!(surface.pixels[3], 255);
     }
 }
