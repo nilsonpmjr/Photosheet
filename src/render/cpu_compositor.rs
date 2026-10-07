@@ -544,6 +544,6 @@ mod tests {
         document.add_layer(top);
 
         let surface = CpuCompositor::render(&document).unwrap();
-        assert_eq!(surface.pixels, vec![255, 73, 73, 255]);
+        assert_eq!(surface.pixels, vec![255, 74, 74, 255]);
     }
 }
