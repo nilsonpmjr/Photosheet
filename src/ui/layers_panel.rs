@@ -20,6 +20,7 @@ pub struct LayersPanel {
     on_add_adjustment: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_delete_layer: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_duplicate_layer: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_merge_down: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_opacity_change: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_blend_mode_change: Rc<RefCell<Option<Box<dyn Fn(LayerBlendMode)>>>>,
     on_select_layer: Rc<RefCell<Option<Box<dyn Fn(Uuid)>>>>,
@@ -144,10 +145,17 @@ impl LayersPanel {
             .build();
         delete_layer_btn.add_css_class("flat");
 
+        let merge_down_btn = Button::builder()
+            .icon_name("go-down-symbolic")
+            .tooltip_text("Mesclar Camada Abaixo")
+            .build();
+        merge_down_btn.add_css_class("flat");
+
         bottom_actions.append(&add_layer_btn);
         bottom_actions.append(&add_group_btn);
         bottom_actions.append(&add_adj_btn);
         bottom_actions.append(&dup_layer_btn);
+        bottom_actions.append(&merge_down_btn);
         bottom_actions.append(&delete_layer_btn);
 
         container.append(&bottom_actions);
@@ -157,6 +165,7 @@ impl LayersPanel {
         let on_add_adjustment = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
         let on_delete_layer = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
         let on_duplicate_layer = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
+        let on_merge_down = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
         let on_opacity_change = Rc::new(RefCell::new(None::<Box<dyn Fn(f64)>>));
         let on_blend_mode_change = Rc::new(RefCell::new(None::<Box<dyn Fn(LayerBlendMode)>>));
         let on_select_layer = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
@@ -204,6 +213,14 @@ impl LayersPanel {
                 }
             });
         }
+        {
+            let cb = Rc::clone(&on_merge_down);
+            merge_down_btn.connect_clicked(move |_| {
+                if let Some(ref f) = *cb.borrow() {
+                    f();
+                }
+            });
+        }
 
         // Opacidade slider
         {
@@ -239,6 +256,7 @@ impl LayersPanel {
             on_add_adjustment,
             on_delete_layer,
             on_duplicate_layer,
+            on_merge_down,
             on_opacity_change,
             on_blend_mode_change,
             on_select_layer,
@@ -343,6 +361,10 @@ impl LayersPanel {
 
     pub fn connect_duplicate_layer<F: Fn() + 'static>(&self, f: F) {
         *self.on_duplicate_layer.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn connect_merge_down<F: Fn() + 'static>(&self, f: F) {
+        *self.on_merge_down.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn connect_opacity_change<F: Fn(f64) + 'static>(&self, f: F) {
