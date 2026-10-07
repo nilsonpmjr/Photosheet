@@ -2,6 +2,7 @@ pub mod adjustments_panel;
 pub mod canvas_widget;
 pub mod dialogs;
 pub mod header_bar;
+pub mod icons;
 pub mod layers_panel;
 pub mod tool_bar;
 pub mod tool_options;

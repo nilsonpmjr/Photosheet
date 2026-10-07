@@ -22,6 +22,7 @@ fn main() {
 }
 
 fn build_ui(app: &libadwaita::Application) {
+    ui::icons::init_icon_theme();
     let window = PhotosheetWindow::new(app);
     // Cria um documento padrão inicial Full HD
     window.create_new_document(NewDocumentParams {
