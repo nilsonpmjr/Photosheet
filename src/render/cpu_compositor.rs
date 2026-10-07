@@ -580,4 +580,26 @@ mod tests {
             assert_eq!(surface.pixels, expected, "{}", mode.name());
         }
     }
+
+    #[test]
+    fn component_blends_preserve_their_documented_components() {
+        let source = [0.8, 0.2, 0.6];
+        let destination = [0.2, 0.6, 0.4];
+
+        let hue = blend_rgb(LayerBlendMode::Hue, source, destination);
+        assert!((luminosity(hue) - luminosity(destination)).abs() < 0.0001);
+        assert!((saturation(hue) - saturation(destination)).abs() < 0.0001);
+
+        let saturation_mode = blend_rgb(LayerBlendMode::Saturation, source, destination);
+        assert!((luminosity(saturation_mode) - luminosity(destination)).abs() < 0.0001);
+        assert!((saturation(saturation_mode) - saturation(source)).abs() < 0.0001);
+
+        let color = blend_rgb(LayerBlendMode::Color, source, destination);
+        assert!((luminosity(color) - luminosity(destination)).abs() < 0.0001);
+        assert!((saturation(color) - saturation(source)).abs() < 0.0001);
+
+        let luminosity_mode = blend_rgb(LayerBlendMode::Luminosity, source, destination);
+        assert!((luminosity(luminosity_mode) - luminosity(source)).abs() < 0.0001);
+        assert!((saturation(luminosity_mode) - saturation(destination)).abs() < 0.0001);
+    }
 }
