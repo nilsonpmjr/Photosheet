@@ -23,6 +23,8 @@ pub struct ToolOptionsBar {
     text_box: GtkBox,
     crop_box: GtkBox,
     move_box: GtkBox,
+    shape_settings: Rc<RefCell<ShapeToolSettings>>,
+    on_shape_settings_change: Rc<RefCell<Option<Box<dyn Fn(ShapeToolSettings)>>>>,
 }
 
 impl ToolOptionsBar {
@@ -89,6 +91,8 @@ impl ToolOptionsBar {
 
         // 4. Opções de Forma (Shape)
         let shape_box = GtkBox::new(Orientation::Horizontal, 8);
+        let shape_settings = Rc::new(RefCell::new(ShapeToolSettings::default()));
+        let on_shape_settings_change = Rc::new(RefCell::new(None::<Box<dyn Fn(ShapeToolSettings)>>));
         let shape_kinds = StringList::new(&["Retângulo", "Elipse", "Linha"]);
         let shape_dropdown = DropDown::new(Some(shape_kinds), gtk4::Expression::NONE);
         shape_box.append(&Label::new(Some("Forma:")));
@@ -103,6 +107,41 @@ impl ToolOptionsBar {
         let stroke_adj = Adjustment::new(0.0, 0.0, 100.0, 1.0, 2.0, 0.0);
         let stroke_spin = SpinButton::new(Some(&stroke_adj), 1.0, 0);
         shape_box.append(&stroke_spin);
+
+        {
+            let settings = Rc::clone(&shape_settings);
+            let callback = Rc::clone(&on_shape_settings_change);
+            shape_dropdown.connect_selected_notify(move |dropdown| {
+                settings.borrow_mut().kind = match dropdown.selected() {
+                    1 => ShapeKind::Ellipse,
+                    2 => ShapeKind::Line,
+                    _ => ShapeKind::Rectangle,
+                };
+                if let Some(callback) = callback.borrow().as_ref() {
+                    callback(settings.borrow().clone());
+                }
+            });
+        }
+        {
+            let settings = Rc::clone(&shape_settings);
+            let callback = Rc::clone(&on_shape_settings_change);
+            corner_spin.connect_value_changed(move |spin| {
+                settings.borrow_mut().corner_radius = spin.value();
+                if let Some(callback) = callback.borrow().as_ref() {
+                    callback(settings.borrow().clone());
+                }
+            });
+        }
+        {
+            let settings = Rc::clone(&shape_settings);
+            let callback = Rc::clone(&on_shape_settings_change);
+            stroke_spin.connect_value_changed(move |spin| {
+                settings.borrow_mut().stroke_width = spin.value();
+                if let Some(callback) = callback.borrow().as_ref() {
+                    callback(settings.borrow().clone());
+                }
+            });
+        }
 
         options_stack.add_named(&shape_box, Some("shape"));
 
@@ -150,6 +189,8 @@ impl ToolOptionsBar {
             text_box,
             crop_box,
             move_box,
+            shape_settings,
+            on_shape_settings_change,
         }
     }
 
@@ -169,5 +210,9 @@ impl ToolOptionsBar {
             _ => "move",
         };
         self.options_stack.set_visible_child_name(name);
+    }
+
+    pub fn connect_shape_settings_change<F: Fn(ShapeToolSettings) + 'static>(&self, f: F) {
+        *self.on_shape_settings_change.borrow_mut() = Some(Box::new(f));
     }
 }

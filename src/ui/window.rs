@@ -370,6 +370,12 @@ impl PhotosheetWindow {
         }
         {
             let session = Rc::clone(&self.session);
+            self.tool_options.connect_shape_settings_change(move |settings| {
+                session.borrow_mut().shape_settings = settings;
+            });
+        }
+        {
+            let session = Rc::clone(&self.session);
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
             layers_panel.connect_toggle_visibility(move |id| {
