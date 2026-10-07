@@ -173,7 +173,8 @@ impl PhotosheetHeaderBar {
     }
 
     pub fn set_zoom(&self, zoom_factor: f64) {
-        self.zoom_label.set_label(&format!("{}%", (zoom_factor * 100.0).round() as i32));
+        self.zoom_label
+            .set_label(&format!("{}%", (zoom_factor * 100.0).round() as i32));
     }
 
     pub fn connect_new<F: Fn() + 'static>(&self, f: F) {

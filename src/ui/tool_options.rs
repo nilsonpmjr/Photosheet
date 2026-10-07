@@ -1,11 +1,13 @@
 //! Barra de Opções Contextuais da Ferramenta Ativa (ToolOptions).
 //! Traduzido de Compositor/UI/NavigationToolHeader.swift.
 
-use crate::core::session::{BrushSettings, NavigationTool, ShapeKind, ShapeToolSettings, WandSettings};
+use crate::core::session::{
+    BrushSettings, NavigationTool, ShapeKind, ShapeToolSettings, WandSettings,
+};
 use gtk4::prelude::*;
 use gtk4::{
-    Adjustment, Box as GtkBox, CheckButton, DropDown, Label, Orientation, Scale, Separator, SpinButton,
-    StringList,
+    Adjustment, Box as GtkBox, CheckButton, DropDown, Label, Orientation, Scale, Separator,
+    SpinButton, StringList,
 };
 use std::cell::RefCell;
 use std::rc::Rc;

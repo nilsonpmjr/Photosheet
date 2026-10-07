@@ -643,4 +643,20 @@ mod tests {
         assert_eq!(session.foreground_color, [0, 0, 0, 255]);
         assert_eq!(session.background_color, [255, 255, 255, 255]);
     }
+
+    #[test]
+    fn adds_editable_shape_with_raster_fallback() {
+        let mut session = EditorSession::with_document(Document::new(100, 100, 72.0));
+        session.shape_settings.fill_color = [12, 34, 56, 255];
+        session.shape_settings.corner_radius = 4.0;
+        let id = session.add_shape(Point { x: 10.0, y: 20.0 }, Point { x: 30.0, y: 50.0 }).unwrap();
+        let layer = session.document.as_ref().unwrap().find_layer(id).unwrap();
+        let LayerKind::Shape { style, pixels: Some(pixels), width, height, .. } = &layer.kind else {
+            panic!("expected editable shape");
+        };
+        assert_eq!(style.kind, LayerShapeKind::RoundedRectangle);
+        assert_eq!(layer.transform.origin, Point { x: 10.0, y: 20.0 });
+        assert_eq!((*width, *height), (20, 30));
+        assert_eq!(pixels.len(), 20 * 30 * 4);
+    }
 }

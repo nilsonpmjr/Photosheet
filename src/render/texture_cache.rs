@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 use wgpu::{
-    Device, Extent3d, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, Texture,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    Device, Extent3d, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, Texture, TextureAspect,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    TextureViewDescriptor,
 };
 
 pub struct TextureCache {
@@ -106,4 +106,3 @@ mod tests {
         }
     }
 }
-

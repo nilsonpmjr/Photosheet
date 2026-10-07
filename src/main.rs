@@ -33,4 +33,3 @@ fn build_ui(app: &libadwaita::Application) {
     });
     window.present();
 }
-

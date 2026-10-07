@@ -2,8 +2,8 @@ use crate::core::blend::LayerBlendMode;
 use crate::core::layer::Layer;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CheckButton, DropDown, Image, Label, ListBox, ListBoxRow, Orientation, Scale,
-    ScrolledWindow, Separator, StringList,
+    Box as GtkBox, Button, CheckButton, DropDown, Image, Label, ListBox, ListBoxRow, Orientation,
+    Scale, ScrolledWindow, Separator, StringList,
 };
 use std::cell::RefCell;
 use std::rc::Rc;

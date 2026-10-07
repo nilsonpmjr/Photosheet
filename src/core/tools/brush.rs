@@ -116,7 +116,9 @@ impl BrushEngine {
         let steps = (distance / step_size).ceil() as usize;
 
         if steps == 0 {
-            Self::render_dab(x0, y0, settings, color, is_eraser, pixels, width, height, selection);
+            Self::render_dab(
+                x0, y0, settings, color, is_eraser, pixels, width, height, selection,
+            );
             return;
         }
 
@@ -124,7 +126,9 @@ impl BrushEngine {
             let t = i as f64 / steps as f64;
             let px = x0 + dx * t;
             let py = y0 + dy * t;
-            Self::render_dab(px, py, settings, color, is_eraser, pixels, width, height, selection);
+            Self::render_dab(
+                px, py, settings, color, is_eraser, pixels, width, height, selection,
+            );
         }
     }
 }
@@ -148,16 +152,36 @@ mod tests {
         let red = [255, 0, 0, 255];
 
         // Pintar ponto no centro (25, 25)
-        BrushEngine::render_dab(25.0, 25.0, &settings, red, false, &mut pixels, width, height, None);
+        BrushEngine::render_dab(
+            25.0,
+            25.0,
+            &settings,
+            red,
+            false,
+            &mut pixels,
+            width,
+            height,
+            None,
+        );
 
         let center_idx = (25 * width + 25) * 4;
         assert_eq!(pixels[center_idx], 255); // R
-        assert_eq!(pixels[center_idx + 1], 0);   // G
-        assert_eq!(pixels[center_idx + 2], 0);   // B
+        assert_eq!(pixels[center_idx + 1], 0); // G
+        assert_eq!(pixels[center_idx + 2], 0); // B
         assert_eq!(pixels[center_idx + 3], 255); // A
 
         // Apagar ponto no centro com a borracha
-        BrushEngine::render_dab(25.0, 25.0, &settings, red, true, &mut pixels, width, height, None);
+        BrushEngine::render_dab(
+            25.0,
+            25.0,
+            &settings,
+            red,
+            true,
+            &mut pixels,
+            width,
+            height,
+            None,
+        );
         assert_eq!(pixels[center_idx + 3], 0); // Alfa apagado para 0
     }
 }

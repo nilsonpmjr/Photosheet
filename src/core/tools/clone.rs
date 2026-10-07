@@ -43,7 +43,8 @@ impl CloneStampEngine {
                 let src_px = px as f64 + offset_x;
                 let src_py = py as f64 + offset_y;
 
-                if src_px < 0.0 || src_px >= width as f64 || src_py < 0.0 || src_py >= height as f64 {
+                if src_px < 0.0 || src_px >= width as f64 || src_py < 0.0 || src_py >= height as f64
+                {
                     continue;
                 }
 
@@ -120,7 +121,15 @@ mod tests {
         settings.opacity = 1.0;
 
         CloneStampEngine::render_clone_dab(
-            20.0, 20.0, -10.0, -10.0, &settings, &source, &mut target, width, height,
+            20.0,
+            20.0,
+            -10.0,
+            -10.0,
+            &settings,
+            &source,
+            &mut target,
+            width,
+            height,
         );
 
         let dst_idx = (20 * width + 20) * 4;

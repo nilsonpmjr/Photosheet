@@ -174,12 +174,7 @@ extern "C" {
         height: size_t,
     );
 
-    pub fn layer_unpremultiply_opaque(
-        rgba: *mut u8,
-        stride: size_t,
-        width: size_t,
-        height: size_t,
-    );
+    pub fn layer_unpremultiply_opaque(rgba: *mut u8, stride: size_t, width: size_t, height: size_t);
 
     pub fn layer_restore_alpha(
         rgba: *mut u8,
@@ -394,9 +389,9 @@ mod tests {
         // 4x4 image, all red with full alpha
         let mut image = vec![0u8; width * height * 4];
         for i in (0..image.len()).step_by(4) {
-            image[i] = 255;     // R
-            image[i + 1] = 0;   // G
-            image[i + 2] = 0;   // B
+            image[i] = 255; // R
+            image[i + 1] = 0; // G
+            image[i + 2] = 0; // B
             image[i + 3] = 255; // A
         }
 
@@ -407,9 +402,9 @@ mod tests {
                 width,
                 height,
                 stride,
-                0, // seed_x
-                0, // seed_y
-                0, // radius
+                0,  // seed_x
+                0,  // seed_y
+                0,  // radius
                 10, // tolerance
                 1,  // contiguous
                 mask.as_mut_ptr(),
@@ -427,16 +422,7 @@ mod tests {
         let stride = width * 4;
         let mut image = vec![128u8; width * height * 4];
         unsafe {
-            noise_add(
-                image.as_mut_ptr(),
-                width,
-                height,
-                stride,
-                20.0,
-                0,
-                1,
-                1337,
-            );
+            noise_add(image.as_mut_ptr(), width, height, stride, 20.0, 0, 1, 1337);
         }
         // Alpha must remain intact (128)
         for i in (3..image.len()).step_by(4) {
@@ -496,9 +482,7 @@ mod tests {
             wobble: 0.0,
         };
 
-        let res = unsafe {
-            dither_apply(image.as_mut_ptr(), width, height, stride, &params)
-        };
+        let res = unsafe { dither_apply(image.as_mut_ptr(), width, height, stride, &params) };
         assert_eq!(res, 1);
     }
 }

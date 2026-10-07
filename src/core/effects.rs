@@ -21,8 +21,12 @@ pub struct StrokeEffect {
     pub inside: bool,
 }
 
-fn default_stroke_size() -> f64 { 4.0 }
-fn default_one() -> f64 { 1.0 }
+fn default_stroke_size() -> f64 {
+    4.0
+}
+fn default_one() -> f64 {
+    1.0
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShadowEffect {
@@ -44,10 +48,18 @@ pub struct ShadowEffect {
     pub opacity: f64,
 }
 
-fn default_angle() -> f64 { 90.0 }
-fn default_distance() -> f64 { 20.0 }
-fn default_blur() -> f64 { 20.0 }
-fn default_half() -> f64 { 0.5 }
+fn default_angle() -> f64 {
+    90.0
+}
+fn default_distance() -> f64 {
+    20.0
+}
+fn default_blur() -> f64 {
+    20.0
+}
+fn default_half() -> f64 {
+    0.5
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColorOverlayEffect {
@@ -79,7 +91,9 @@ pub struct GlowEffect {
     pub opacity: f64,
 }
 
-fn default_glow_size() -> f64 { 20.0 }
+fn default_glow_size() -> f64 {
+    20.0
+}
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LayerEffects {

@@ -72,7 +72,10 @@ impl PhotosheetWindow {
         // Notebook ou Stack para abas laterais (Camadas / Ajustes)
         let side_notebook = Notebook::new();
         side_notebook.append_page(&layers_panel.container, Some(&Label::new(Some("Camadas"))));
-        side_notebook.append_page(&adjustments_panel.container, Some(&Label::new(Some("Ajustes"))));
+        side_notebook.append_page(
+            &adjustments_panel.container,
+            Some(&Label::new(Some("Ajustes"))),
+        );
 
         main_paned.set_end_child(Some(&side_notebook));
         main_paned.set_resize_end_child(false);
@@ -107,7 +110,7 @@ impl PhotosheetWindow {
     /// Cria uma nova aba de documento e inicializa a sessão de edição
     pub fn create_new_document(&self, params: NewDocumentParams) {
         let mut doc = Document::new(params.width, params.height, params.resolution);
-        
+
         // Criar camada de fundo padrão
         let mut bg_layer = crate::core::layer::Layer::new_pixel(
             "Plano de Fundo".into(),
@@ -160,7 +163,8 @@ impl PhotosheetWindow {
 
         // Atualizar lista de camadas na UI
         if let Some(doc_ref) = &self.session.borrow().document {
-            self.layers_panel.update_layers(&doc_ref.layers, doc_ref.active_layer_id);
+            self.layers_panel
+                .update_layers(&doc_ref.layers, doc_ref.active_layer_id);
         }
     }
 
@@ -390,17 +394,18 @@ impl PhotosheetWindow {
             let session = Rc::clone(&self.session);
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
-            self.adjustments_panel.connect_adjustment_selected(move |adj| {
-                let (layers, active_id) = {
-                    let mut s = session.borrow_mut();
-                    s.add_adjustment_layer(adj, None);
-                    match &s.document {
-                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
-                        None => (Vec::new(), None),
-                    }
-                };
-                lp.update_layers(&layers, active_id);
-            });
+            self.adjustments_panel
+                .connect_adjustment_selected(move |adj| {
+                    let (layers, active_id) = {
+                        let mut s = session.borrow_mut();
+                        s.add_adjustment_layer(adj, None);
+                        match &s.document {
+                            Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                            None => (Vec::new(), None),
+                        }
+                    };
+                    lp.update_layers(&layers, active_id);
+                });
         }
     }
 }

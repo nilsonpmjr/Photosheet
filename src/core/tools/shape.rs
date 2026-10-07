@@ -40,8 +40,20 @@ impl ShapeEngine {
                         let fx = px as f64;
 
                         let inside = if r > 0.0 {
-                            let cx = if fx < x + r { x + r } else if fx > x + w - r { x + w - r } else { fx };
-                            let cy = if fy < y + r { y + r } else if fy > y + h - r { y + h - r } else { fy };
+                            let cx = if fx < x + r {
+                                x + r
+                            } else if fx > x + w - r {
+                                x + w - r
+                            } else {
+                                fx
+                            };
+                            let cy = if fy < y + r {
+                                y + r
+                            } else if fy > y + h - r {
+                                y + h - r
+                            } else {
+                                fy
+                            };
                             let d2 = (fx - cx).powi(2) + (fy - cy).powi(2);
                             d2 <= r * r
                         } else {
@@ -89,7 +101,9 @@ impl ShapeEngine {
                         let outer_val = (dx2 / rx2) + (dy2 / ry2);
 
                         if outer_val <= 1.0 {
-                            let is_stroke = has_stroke && (inner_rx2 <= 0.0 || (dx2 / inner_rx2) + (dy2 / inner_ry2) > 1.0);
+                            let is_stroke = has_stroke
+                                && (inner_rx2 <= 0.0
+                                    || (dx2 / inner_rx2) + (dy2 / inner_ry2) > 1.0);
                             let col = if is_stroke {
                                 settings.stroke_color
                             } else if has_fill {
@@ -128,10 +142,14 @@ impl ShapeEngine {
 
                         for py in l_min_y..=l_max_y {
                             for px in l_min_x..=l_max_x {
-                                let d = ((px as f64 - lx).powi(2) + (py as f64 - ly).powi(2)).sqrt();
+                                let d =
+                                    ((px as f64 - lx).powi(2) + (py as f64 - ly).powi(2)).sqrt();
                                 if d <= radius {
                                     let idx = (py * buf_width + px) * 4;
-                                    Self::blend_pixel(&mut pixels[idx..idx + 4], settings.fill_color);
+                                    Self::blend_pixel(
+                                        &mut pixels[idx..idx + 4],
+                                        settings.fill_color,
+                                    );
                                 }
                             }
                         }
@@ -186,7 +204,16 @@ mod tests {
         settings.fill_color = [0, 255, 0, 255]; // Verde
         settings.stroke_width = 0.0;
 
-        ShapeEngine::render_shape(10.0, 10.0, 20.0, 20.0, &settings, &mut pixels, width, height);
+        ShapeEngine::render_shape(
+            10.0,
+            10.0,
+            20.0,
+            20.0,
+            &settings,
+            &mut pixels,
+            width,
+            height,
+        );
 
         let inside_idx = (15 * width + 15) * 4;
         assert_eq!(pixels[inside_idx + 1], 255); // Verde

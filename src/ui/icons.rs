@@ -148,7 +148,9 @@ pub fn init_icon_theme() {
     theme.add_search_path("data/icons/hicolor/scalable/actions");
 
     if let Ok(home) = std::env::var("HOME") {
-        theme.add_search_path(PathBuf::from(&home).join(".local/share/icons/hicolor/scalable/actions"));
+        theme.add_search_path(
+            PathBuf::from(&home).join(".local/share/icons/hicolor/scalable/actions"),
+        );
         theme.add_search_path(PathBuf::from(&home).join(".local/share/icons"));
     }
 

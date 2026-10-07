@@ -46,7 +46,9 @@ impl VulkanContext {
                         })
                         .await
                 })
-                .ok_or_else(|| "Nenhum adaptador Vulkan ou OpenGL compatível encontrado no Linux.".to_string())?
+                .ok_or_else(|| {
+                    "Nenhum adaptador Vulkan ou OpenGL compatível encontrado no Linux.".to_string()
+                })?
             }
         };
 
@@ -91,8 +93,16 @@ mod tests {
     #[test]
     fn test_vulkan_context_initialization() {
         let ctx = VulkanContext::new();
-        assert!(ctx.is_ok(), "Contexto Vulkan deve inicializar no Linux: {:?}", ctx.err());
+        assert!(
+            ctx.is_ok(),
+            "Contexto Vulkan deve inicializar no Linux: {:?}",
+            ctx.err()
+        );
         let ctx = ctx.unwrap();
-        println!("GPU detectada: {} ({})", ctx.device_name(), ctx.driver_info());
+        println!(
+            "GPU detectada: {} ({})",
+            ctx.device_name(),
+            ctx.driver_info()
+        );
     }
 }

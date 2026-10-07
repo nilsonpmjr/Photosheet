@@ -51,7 +51,14 @@ impl NewDocumentDialog {
         // Largura
         let width_box = Box::new(Orientation::Horizontal, 8);
         width_box.append(&Label::new(Some("Largura (px):")));
-        let width_adj = Adjustment::new(1920.0, 1.0, DocumentLimits::MAX_SIDE as f64, 1.0, 100.0, 0.0);
+        let width_adj = Adjustment::new(
+            1920.0,
+            1.0,
+            DocumentLimits::MAX_SIDE as f64,
+            1.0,
+            100.0,
+            0.0,
+        );
         let width_spin = SpinButton::new(Some(&width_adj), 1.0, 0);
         width_box.append(&width_spin);
         content.append(&width_box);
@@ -59,7 +66,14 @@ impl NewDocumentDialog {
         // Altura
         let height_box = Box::new(Orientation::Horizontal, 8);
         height_box.append(&Label::new(Some("Altura (px):")));
-        let height_adj = Adjustment::new(1080.0, 1.0, DocumentLimits::MAX_SIDE as f64, 1.0, 100.0, 0.0);
+        let height_adj = Adjustment::new(
+            1080.0,
+            1.0,
+            DocumentLimits::MAX_SIDE as f64,
+            1.0,
+            100.0,
+            0.0,
+        );
         let height_spin = SpinButton::new(Some(&height_adj), 1.0, 0);
         height_box.append(&height_spin);
         content.append(&height_box);
@@ -85,30 +99,28 @@ impl NewDocumentDialog {
             let w_spin = width_spin.clone();
             let h_spin = height_spin.clone();
             let r_spin = res_spin.clone();
-            preset_dropdown.connect_selected_notify(move |d| {
-                match d.selected() {
-                    1 => {
-                        w_spin.set_value(1920.0);
-                        h_spin.set_value(1080.0);
-                        r_spin.set_value(72.0);
-                    }
-                    2 => {
-                        w_spin.set_value(3840.0);
-                        h_spin.set_value(2160.0);
-                        r_spin.set_value(72.0);
-                    }
-                    3 => {
-                        w_spin.set_value(1080.0);
-                        h_spin.set_value(1080.0);
-                        r_spin.set_value(72.0);
-                    }
-                    4 => {
-                        w_spin.set_value(2480.0);
-                        h_spin.set_value(3508.0);
-                        r_spin.set_value(300.0);
-                    }
-                    _ => {}
+            preset_dropdown.connect_selected_notify(move |d| match d.selected() {
+                1 => {
+                    w_spin.set_value(1920.0);
+                    h_spin.set_value(1080.0);
+                    r_spin.set_value(72.0);
                 }
+                2 => {
+                    w_spin.set_value(3840.0);
+                    h_spin.set_value(2160.0);
+                    r_spin.set_value(72.0);
+                }
+                3 => {
+                    w_spin.set_value(1080.0);
+                    h_spin.set_value(1080.0);
+                    r_spin.set_value(72.0);
+                }
+                4 => {
+                    w_spin.set_value(2480.0);
+                    h_spin.set_value(3508.0);
+                    r_spin.set_value(300.0);
+                }
+                _ => {}
             });
         }
 
@@ -123,8 +135,8 @@ impl NewDocumentDialog {
                 let resolution = res_spin.value();
                 let background_color = match bg_dropdown.selected() {
                     0 => Some([255, 255, 255, 255]), // Branco
-                    1 => None,                        // Transparente
-                    2 => Some([0, 0, 0, 255]),        // Preto
+                    1 => None,                       // Transparente
+                    2 => Some([0, 0, 0, 255]),       // Preto
                     _ => Some([255, 255, 255, 255]),
                 };
                 on_confirm(NewDocumentParams {

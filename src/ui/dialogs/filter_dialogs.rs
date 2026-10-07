@@ -1,7 +1,7 @@
 use gtk4::prelude::*;
 use gtk4::{
-    Adjustment, Box as GtkBox, CheckButton, Dialog, DropDown, Label, Orientation, ResponseType, Scale,
-    SpinButton, StringList, Window,
+    Adjustment, Box as GtkBox, CheckButton, Dialog, DropDown, Label, Orientation, ResponseType,
+    Scale, SpinButton, StringList, Window,
 };
 
 pub struct FilterDialogs;

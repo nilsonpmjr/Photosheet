@@ -3,9 +3,7 @@
 
 use crate::core::adjustment::LayerAdjustment;
 use gtk4::prelude::*;
-use gtk4::{
-    Adjustment, Box, Dialog, Label, Orientation, ResponseType, Scale, Window,
-};
+use gtk4::{Adjustment, Box, Dialog, Label, Orientation, ResponseType, Scale, Window};
 
 pub struct LevelsDialog;
 

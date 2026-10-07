@@ -5,13 +5,12 @@ use crate::render::vulkan_context::VulkanContext;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{
-    include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
-    Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState,
-    ColorWrites, Device, FragmentState, MultisampleState, PipelineCompilationOptions,
-    PipelineLayoutDescriptor, PrimitiveState, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler,
-    SamplerBindingType, SamplerDescriptor, ShaderStages, TextureFormat, TextureSampleType,
+    include_wgsl, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+    BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, FragmentState,
+    MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, TextureFormat, TextureSampleType,
     TextureView, TextureViewDimension, VertexState,
 };
 
@@ -156,7 +155,8 @@ impl LayerCompositePipeline {
         output_view: &TextureView,
         uniforms: CompositeUniforms,
     ) {
-        self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
         let bind_group = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Composite Bind Group"),
@@ -185,9 +185,11 @@ impl LayerCompositePipeline {
             ],
         });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Composite Command Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Composite Command Encoder"),
+            });
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -256,4 +258,3 @@ mod tests {
         }
     }
 }
-

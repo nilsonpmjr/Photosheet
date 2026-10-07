@@ -25,7 +25,11 @@ pub enum ExportFormat {
 pub struct ExportDialog;
 
 impl ExportDialog {
-    pub fn show<F: Fn(ExportParams) + 'static>(parent: &impl IsA<Window>, doc: &Document, on_confirm: F) {
+    pub fn show<F: Fn(ExportParams) + 'static>(
+        parent: &impl IsA<Window>,
+        doc: &Document,
+        on_confirm: F,
+    ) {
         let dialog = Dialog::builder()
             .transient_for(parent)
             .modal(true)
@@ -64,7 +68,10 @@ impl ExportDialog {
         path_box.append(&Label::new(Some("Salvar em:")));
         let path_entry = Entry::new();
         path_entry.set_hexpand(true);
-        path_entry.set_text(&format!("{}/imagem_exportada.png", std::env::var("HOME").unwrap_or_else(|_| ".".into())));
+        path_entry.set_text(&format!(
+            "{}/imagem_exportada.png",
+            std::env::var("HOME").unwrap_or_else(|_| ".".into())
+        ));
         path_box.append(&path_entry);
         content.append(&path_box);
 

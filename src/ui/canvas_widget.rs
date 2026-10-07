@@ -200,9 +200,10 @@ impl CanvasWidget {
                 let d_start = Rc::clone(&d_start);
                 let handle_ref = Rc::clone(&handle_ref);
                 let on_mod = Rc::clone(&on_mod);
+                let area = area_clone.clone();
 
-                drag.connect_drag_end(move |_gesture, _offset_x, _offset_y| {
-                    if let Some(_start) = *d_start.borrow() {
+                drag.connect_drag_end(move |_gesture, offset_x, offset_y| {
+                    if let Some(start) = *d_start.borrow() {
                         {
                             let mut s = sess.borrow_mut();
                             if s.active_tool == NavigationTool::Brush
@@ -211,8 +212,21 @@ impl CanvasWidget {
                                 s.push_history("Pincelada");
                             } else if s.active_tool == NavigationTool::Move {
                                 s.push_history("Mover / Transformar");
+                            } else if s.active_tool == NavigationTool::Shape {
+                                let (start_x, start_y) = Self::screen_to_doc(
+                                    &s, start.0, start.1, area.width() as f64, area.height() as f64,
+                                );
+                                let (end_x, end_y) = Self::screen_to_doc(
+                                    &s, start.0 + offset_x, start.1 + offset_y,
+                                    area.width() as f64, area.height() as f64,
+                                );
+                                s.add_shape(
+                                    Point { x: start_x, y: start_y },
+                                    Point { x: end_x, y: end_y },
+                                );
                             }
                         }
+                        area.queue_draw();
                         if let Some(ref cb) = *on_mod.borrow() {
                             cb();
                         }

@@ -30,17 +30,61 @@ impl AdjustmentsPanel {
         container.append(&Separator::new(Orientation::Horizontal));
 
         let adjustments = vec![
-            ("Brilho / Contraste", "display-brightness-symbolic", LayerAdjustment::exposure(0.0, 0.0, 1.0)),
-            ("Níveis", "view-list-symbolic", LayerAdjustment::levels(0.0, 1.0, 255.0, 0.0, 255.0)),
-            ("Curvas", "network-cellular-signal-good-symbolic", LayerAdjustment::curves()),
-            ("Exposição", "camera-flash-symbolic", LayerAdjustment::exposure(0.0, 0.0, 1.0)),
-            ("Matiz / Saturação", "color-gradient-symbolic", LayerAdjustment::hue_saturation(0.0, 0.0, 0.0)),
-            ("Equilíbrio de Cores", "weather-clear-symbolic", LayerAdjustment::new(crate::core::adjustment::AdjustmentKind::ColorBalance)),
-            ("Preto e Branco", "media-record-symbolic", LayerAdjustment::black_and_white()),
-            ("Inverter", "view-refresh-symbolic", LayerAdjustment::invert()),
-            ("Desfoque Gaussiano", "blur-symbolic", LayerAdjustment::gaussian_blur(5.0)),
-            ("Adicionar Ruído", "network-cellular-signal-none-symbolic", LayerAdjustment::add_noise(20.0, true, true)),
-            ("Mapa de Gradiente", "color-select-symbolic", LayerAdjustment::new(crate::core::adjustment::AdjustmentKind::GradientMap)),
+            (
+                "Brilho / Contraste",
+                "display-brightness-symbolic",
+                LayerAdjustment::exposure(0.0, 0.0, 1.0),
+            ),
+            (
+                "Níveis",
+                "view-list-symbolic",
+                LayerAdjustment::levels(0.0, 1.0, 255.0, 0.0, 255.0),
+            ),
+            (
+                "Curvas",
+                "network-cellular-signal-good-symbolic",
+                LayerAdjustment::curves(),
+            ),
+            (
+                "Exposição",
+                "camera-flash-symbolic",
+                LayerAdjustment::exposure(0.0, 0.0, 1.0),
+            ),
+            (
+                "Matiz / Saturação",
+                "color-gradient-symbolic",
+                LayerAdjustment::hue_saturation(0.0, 0.0, 0.0),
+            ),
+            (
+                "Equilíbrio de Cores",
+                "weather-clear-symbolic",
+                LayerAdjustment::new(crate::core::adjustment::AdjustmentKind::ColorBalance),
+            ),
+            (
+                "Preto e Branco",
+                "media-record-symbolic",
+                LayerAdjustment::black_and_white(),
+            ),
+            (
+                "Inverter",
+                "view-refresh-symbolic",
+                LayerAdjustment::invert(),
+            ),
+            (
+                "Desfoque Gaussiano",
+                "blur-symbolic",
+                LayerAdjustment::gaussian_blur(5.0),
+            ),
+            (
+                "Adicionar Ruído",
+                "network-cellular-signal-none-symbolic",
+                LayerAdjustment::add_noise(20.0, true, true),
+            ),
+            (
+                "Mapa de Gradiente",
+                "color-select-symbolic",
+                LayerAdjustment::new(crate::core::adjustment::AdjustmentKind::GradientMap),
+            ),
         ];
 
         let on_adjustment_selected = Rc::new(RefCell::new(None::<Box<dyn Fn(LayerAdjustment)>>));

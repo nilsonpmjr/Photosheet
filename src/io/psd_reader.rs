@@ -23,8 +23,13 @@ impl std::fmt::Display for PsdError {
         match self {
             Self::InvalidMagic => write!(f, "Assinatura mágica inválida (esperado '8BPS')"),
             Self::UnsupportedVersion => write!(f, "Versão PSD/PSB não suportada"),
-            Self::UnsupportedDepth => write!(f, "Profundidade de cor não suportada (suportado apenas 8 bits)"),
-            Self::UnsupportedColorMode => write!(f, "Modo de cor não suportado (suportado apenas RGB)"),
+            Self::UnsupportedDepth => write!(
+                f,
+                "Profundidade de cor não suportada (suportado apenas 8 bits)"
+            ),
+            Self::UnsupportedColorMode => {
+                write!(f, "Modo de cor não suportado (suportado apenas RGB)")
+            }
             Self::DocumentTooLarge => write!(f, "Dimensões do documento excedem os limites"),
             Self::Io(err) => write!(f, "Erro de E/S ao ler arquivo PSD: {}", err),
         }
@@ -304,7 +309,11 @@ impl PsdReader {
                 blend_mode,
                 opacity,
                 is_visible,
-                name: if name.is_empty() { format!("Camada {}", records.len() + 1) } else { name },
+                name: if name.is_empty() {
+                    format!("Camada {}", records.len() + 1)
+                } else {
+                    name
+                },
             });
         }
 
@@ -314,8 +323,14 @@ impl PsdReader {
             let layer_h = (rec.bottom - rec.top).max(1) as usize;
 
             let transform = LayerTransform::new(
-                Point { x: rec.left as f64, y: rec.top as f64 },
-                Size { width: layer_w as f64, height: layer_h as f64 },
+                Point {
+                    x: rec.left as f64,
+                    y: rec.top as f64,
+                },
+                Size {
+                    width: layer_w as f64,
+                    height: layer_h as f64,
+                },
             );
 
             let mut layer = Layer::new_pixel(rec.name, layer_w, layer_h, transform);

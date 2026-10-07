@@ -33,9 +33,21 @@ impl TransformGizmo {
             (TransformHandle::TopCenter, Point { x: x + w / 2.0, y }),
             (TransformHandle::TopRight, Point { x: x + w, y }),
             (TransformHandle::MiddleLeft, Point { x, y: y + h / 2.0 }),
-            (TransformHandle::MiddleRight, Point { x: x + w, y: y + h / 2.0 }),
+            (
+                TransformHandle::MiddleRight,
+                Point {
+                    x: x + w,
+                    y: y + h / 2.0,
+                },
+            ),
             (TransformHandle::BottomLeft, Point { x, y: y + h }),
-            (TransformHandle::BottomCenter, Point { x: x + w / 2.0, y: y + h }),
+            (
+                TransformHandle::BottomCenter,
+                Point {
+                    x: x + w / 2.0,
+                    y: y + h,
+                },
+            ),
             (TransformHandle::BottomRight, Point { x: x + w, y: y + h }),
         ]
     }
@@ -132,7 +144,13 @@ mod tests {
 
     #[test]
     fn test_gizmo_hit_test_and_drag() {
-        let mut t = LayerTransform::new(Point { x: 100.0, y: 100.0 }, Size { width: 200.0, height: 100.0 });
+        let mut t = LayerTransform::new(
+            Point { x: 100.0, y: 100.0 },
+            Size {
+                width: 200.0,
+                height: 100.0,
+            },
+        );
 
         // Clica na alça TopLeft (100, 100)
         let hit = TransformGizmo::hit_test(&t, Point { x: 100.0, y: 100.0 });
