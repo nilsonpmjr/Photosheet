@@ -4,7 +4,7 @@
 //! amostragem passam a ter a mesma definição de composição antes de cada um
 //! ganhar uma implementação acelerada.
 
-use crate::core::adjustment::{AdjustmentKind, LayerAdjustment, LevelsChannel};
+use crate::core::adjustment::{AdjustmentKind, CurvePoint, LayerAdjustment, LevelsChannel};
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::layer::{Layer, LayerKind};
@@ -125,6 +125,20 @@ fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3
                 &adjustment.levels.blue,
             ),
         ]),
+        AdjustmentKind::Curves => Some([
+            apply_curve(
+                apply_curve(color[0], &adjustment.curves.rgb),
+                &adjustment.curves.red,
+            ),
+            apply_curve(
+                apply_curve(color[1], &adjustment.curves.rgb),
+                &adjustment.curves.green,
+            ),
+            apply_curve(
+                apply_curve(color[2], &adjustment.curves.rgb),
+                &adjustment.curves.blue,
+            ),
+        ]),
         AdjustmentKind::BlackWhite => {
             let luma = luminosity(color);
             Some([luma; 3])
@@ -164,6 +178,30 @@ fn apply_levels(component: f32, levels: &LevelsChannel) -> f32 {
     let mapped = normalized.powf(1.0 / gamma);
     ((levels.out_black as f32 + mapped * (levels.out_white - levels.out_black) as f32) / 255.0)
         .clamp(0.0, 1.0)
+}
+
+fn apply_curve(component: f32, points: &[CurvePoint]) -> f32 {
+    let mut points: Vec<_> = points
+        .iter()
+        .filter(|point| point.x.is_finite() && point.y.is_finite())
+        .collect();
+    if points.is_empty() {
+        return component;
+    }
+    points.sort_by(|left, right| left.x.total_cmp(&right.x));
+    let component = component.clamp(0.0, 1.0) as f64;
+    if component <= points[0].x {
+        return points[0].y.clamp(0.0, 1.0) as f32;
+    }
+    for pair in points.windows(2) {
+        let (start, end) = (pair[0], pair[1]);
+        if component <= end.x {
+            let span = (end.x - start.x).max(f64::EPSILON);
+            let amount = ((component - start.x) / span).clamp(0.0, 1.0);
+            return (start.y + (end.y - start.y) * amount).clamp(0.0, 1.0) as f32;
+        }
+    }
+    points.last().expect("non-empty curve").y.clamp(0.0, 1.0) as f32
 }
 
 fn rgb_to_hsl(color: [f32; 3]) -> (f32, f32, f32) {
@@ -787,6 +825,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(levels, [0.5; 3]);
+
+        let mut curves = LayerAdjustment::curves();
+        curves.curves.rgb = vec![
+            CurvePoint { x: 0.0, y: 0.0 },
+            CurvePoint { x: 0.5, y: 0.25 },
+            CurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let curved = adjusted_rgb(&curves, [0.5; 3]).unwrap();
+        assert_eq!(curved, [0.25; 3]);
 
         let black_and_white =
             adjusted_rgb(&LayerAdjustment::black_and_white(), [1.0, 0.0, 0.0]).unwrap();
