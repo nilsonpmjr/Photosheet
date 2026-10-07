@@ -227,13 +227,14 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
         let amount = (adjustment.noise_amount.unwrap_or(10.0) / 100.0).clamp(0.0, 1.0) as f32;
         let seed = adjustment.noise_seed.unwrap_or(0);
         let monochromatic = adjustment.noise_monochromatic.unwrap_or(false);
+        let gaussian = adjustment.noise_gaussian.unwrap_or(false);
         for (pixel_index, pixel) in surface.pixels.chunks_exact_mut(4).enumerate() {
-            let shared = noise_sample(pixel_index as u32, seed);
+            let shared = noise_value(pixel_index as u32, seed, gaussian);
             for channel in 0..3 {
                 let sample = if monochromatic {
                     shared
                 } else {
-                    noise_sample(pixel_index as u32 * 3 + channel as u32, seed)
+                    noise_value(pixel_index as u32 * 3 + channel as u32, seed, gaussian)
                 };
                 let original = pixel[channel] as f32 / 255.0;
                 let noisy = (original + sample * amount).clamp(0.0, 1.0);
@@ -259,6 +260,17 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
                 ((before + (after - before) * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
+}
+
+fn noise_value(index: u32, seed: u32, gaussian: bool) -> f32 {
+    if !gaussian {
+        return noise_sample(index, seed);
+    }
+    let unit = |offset| {
+        ((noise_sample(index.wrapping_add(offset), seed) + 1.0) / 2.0).clamp(0.0001, 0.9999)
+    };
+    let normal = (-2.0 * unit(0).ln()).sqrt() * (std::f32::consts::TAU * unit(1)).cos();
+    (normal / 3.0).clamp(-1.0, 1.0)
 }
 
 fn noise_sample(index: u32, seed: u32) -> f32 {
@@ -1339,6 +1351,28 @@ mod tests {
         assert_eq!(first[0], first[1]);
         assert_eq!(first[1], first[2]);
         assert_eq!(first[3], 255);
+    }
+
+    #[test]
+    fn applies_seeded_gaussian_noise_deterministically() {
+        fn render(gaussian: bool) -> Vec<u8> {
+            let mut document = Document::new(1, 1, 72.0);
+            document.add_layer(pixel_layer("base", vec![128, 128, 128, 255]));
+            let mut noise = LayerAdjustment::add_noise(50.0, gaussian, true);
+            noise.noise_seed = Some(19);
+            document.add_layer(Layer::new_adjustment(
+                "noise".to_string(),
+                noise,
+                LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+            ));
+            CpuCompositor::render(&document).unwrap().pixels
+        }
+
+        let gaussian = render(true);
+        assert_eq!(gaussian, render(true));
+        assert_ne!(gaussian, render(false));
+        assert_eq!(gaussian[0], gaussian[1]);
+        assert_eq!(gaussian[1], gaussian[2]);
     }
 
     #[test]
