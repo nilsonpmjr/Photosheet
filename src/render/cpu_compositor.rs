@@ -4,6 +4,7 @@
 //! amostragem passam a ter a mesma definição de composição antes de cada um
 //! ganhar uma implementação acelerada.
 
+use crate::core::adjustment::{AdjustmentKind, LayerAdjustment};
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::layer::{Layer, LayerKind};
@@ -51,30 +52,48 @@ impl CpuCompositor {
             .map(|layer| (layer.id, layer))
             .collect();
         for (layer, inherited_opacity) in layers {
-            if let LayerKind::Pixel {
-                pixels: Some(pixels),
-                width,
-                height,
-                ..
-            } = &layer.kind
-            {
-                draw_layer(
-                    &mut output,
-                    pixels,
-                    *width,
-                    *height,
-                    &layer.transform,
-                    layer.mask.as_ref(),
-                    inherited_opacity * layer.opacity,
-                    layer.blend_mode,
-                    layer
-                        .clipping_base_id
-                        .and_then(|id| by_id.get(&id).copied()),
-                    &by_id,
-                );
+            match &layer.kind {
+                LayerKind::Pixel {
+                    pixels: Some(pixels),
+                    width,
+                    height,
+                    ..
+                } => {
+                    draw_layer(
+                        &mut output,
+                        pixels,
+                        *width,
+                        *height,
+                        &layer.transform,
+                        layer.mask.as_ref(),
+                        inherited_opacity * layer.opacity,
+                        layer.blend_mode,
+                        layer
+                            .clipping_base_id
+                            .and_then(|id| by_id.get(&id).copied()),
+                        &by_id,
+                    );
+                }
+                LayerKind::Adjustment(adjustment) => {
+                    apply_adjustment(&mut output, adjustment, inherited_opacity * layer.opacity);
+                }
+                _ => {}
             }
         }
         Ok(output)
+    }
+}
+
+fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment, opacity: f64) {
+    if adjustment.kind != AdjustmentKind::Invert || opacity <= 0.0 {
+        return;
+    }
+    let opacity = opacity.clamp(0.0, 1.0) as f32;
+    for pixel in surface.pixels.chunks_exact_mut(4) {
+        for component in &mut pixel[..3] {
+            let original = *component as f32;
+            *component = (original + (255.0 - 2.0 * original) * opacity).round() as u8;
+        }
     }
 }
 
@@ -626,5 +645,21 @@ mod tests {
         let luminosity_mode = blend_rgb(LayerBlendMode::Luminosity, source, destination);
         assert!((luminosity(luminosity_mode) - luminosity(source)).abs() < 0.0001);
         assert!((saturation(luminosity_mode) - saturation(destination)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn applies_invert_adjustment_with_layer_opacity() {
+        let mut document = Document::new(1, 1, 72.0);
+        document.add_layer(pixel_layer("bottom", vec![64, 128, 192, 255]));
+        let mut adjustment = Layer::new_adjustment(
+            "invert".to_string(),
+            LayerAdjustment::invert(),
+            LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+        );
+        adjustment.opacity = 0.5;
+        document.add_layer(adjustment);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(surface.pixels, vec![128, 128, 128, 255]);
     }
 }
