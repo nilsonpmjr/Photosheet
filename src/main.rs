@@ -1,6 +1,7 @@
 pub mod core;
 pub mod ffi;
 pub mod io;
+pub mod render;
 
 use gtk4::prelude::*;
 use libadwaita::prelude::*;

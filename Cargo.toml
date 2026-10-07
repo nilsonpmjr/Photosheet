@@ -25,6 +25,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 crossbeam-channel = "0.5"
 rayon = "1.10"
 libc = "0.2"
+pollster = "0.4"
 
 [build-dependencies]
 cc = "1.2"
