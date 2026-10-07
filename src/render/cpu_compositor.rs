@@ -9,7 +9,9 @@ use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::layer::{Layer, LayerKind};
 use crate::core::shape::{LayerShapeStyle, ShapeKind};
+use crate::core::text::{LayerTextStyle, TextAlignment};
 use crate::core::transform::{LayerTransform, Point};
+use gtk4::cairo::{Context, FontSlant, FontWeight, Format, ImageSurface};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -90,11 +92,108 @@ impl CpuCompositor {
                         .and_then(|id| by_id.get(&id).copied()),
                     &by_id,
                 ),
+                LayerKind::Text(text) => draw_text(
+                    &mut output,
+                    text,
+                    &layer.transform,
+                    inherited_opacity * layer.opacity,
+                    layer.blend_mode,
+                    layer
+                        .clipping_base_id
+                        .and_then(|id| by_id.get(&id).copied()),
+                    &by_id,
+                ),
                 _ => {}
             }
         }
         Ok(output)
     }
+}
+
+fn draw_text(
+    destination: &mut CompositeSurface,
+    text: &LayerTextStyle,
+    transform: &LayerTransform,
+    opacity: f64,
+    blend_mode: LayerBlendMode,
+    clipping_base: Option<&Layer>,
+    by_id: &HashMap<Uuid, &Layer>,
+) {
+    let width = transform.size.width.ceil().max(1.0) as usize;
+    let height = transform.size.height.ceil().max(1.0) as usize;
+    let Ok(mut surface) = ImageSurface::create(Format::ARgb32, width as i32, height as i32) else {
+        return;
+    };
+    let Ok(context) = Context::new(&surface) else {
+        return;
+    };
+    context.select_font_face(&text.font_name, FontSlant::Normal, FontWeight::Normal);
+    context.set_font_size(text.font_size.max(1.0));
+    context.set_source_rgb(
+        text.red.clamp(0.0, 1.0),
+        text.green.clamp(0.0, 1.0),
+        text.blue.clamp(0.0, 1.0),
+    );
+    let line_height = (text.font_size + text.leading).max(1.0);
+    for (index, line) in text.content.lines().enumerate() {
+        let x = match text.alignment {
+            TextAlignment::Left => 0.0,
+            TextAlignment::Center => {
+                (width as f64
+                    - context
+                        .text_extents(line)
+                        .map_or(0.0, |extents| extents.width()))
+                    / 2.0
+            }
+            TextAlignment::Right => {
+                width as f64
+                    - context
+                        .text_extents(line)
+                        .map_or(0.0, |extents| extents.width())
+            }
+        };
+        context.move_to(x.max(0.0), text.font_size + index as f64 * line_height);
+        let _ = context.show_text(line);
+    }
+    drop(context);
+    let stride = surface.stride() as usize;
+    let Ok(data) = surface.data() else { return };
+    let mut pixels = vec![0; width * height * 4];
+    for y in 0..height {
+        for x in 0..width {
+            let source = &data[y * stride + x * 4..y * stride + x * 4 + 4];
+            let target = &mut pixels[(y * width + x) * 4..(y * width + x + 1) * 4];
+            let alpha = source[3];
+            target[0] = if alpha == 0 {
+                0
+            } else {
+                (source[2] as u16 * 255 / alpha as u16) as u8
+            };
+            target[1] = if alpha == 0 {
+                0
+            } else {
+                (source[1] as u16 * 255 / alpha as u16) as u8
+            };
+            target[2] = if alpha == 0 {
+                0
+            } else {
+                (source[0] as u16 * 255 / alpha as u16) as u8
+            };
+            target[3] = alpha;
+        }
+    }
+    draw_layer(
+        destination,
+        &pixels,
+        width,
+        height,
+        transform,
+        None,
+        opacity,
+        blend_mode,
+        clipping_base,
+        by_id,
+    );
 }
 
 fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment, opacity: f64) {
@@ -1044,5 +1143,31 @@ mod tests {
         let surface = CpuCompositor::render(&line_document).unwrap();
         assert_eq!(&surface.pixels[0..4], &[255, 0, 0, 255]);
         assert_eq!(&surface.pixels[12..16], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn renders_text_layer_into_composite_surface() {
+        let mut document = Document::new(48, 32, 72.0);
+        let mut layer = Layer::new_pixel(
+            "text".to_string(),
+            1,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(48.0, 32.0)),
+        );
+        layer.kind = LayerKind::Text(LayerTextStyle {
+            content: "A".to_string(),
+            font_size: 24.0,
+            red: 1.0,
+            green: 0.0,
+            blue: 0.0,
+            ..Default::default()
+        });
+        document.add_layer(layer);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert!(surface
+            .pixels
+            .chunks_exact(4)
+            .any(|pixel| pixel[0] > 0 && pixel[3] > 0));
     }
 }
