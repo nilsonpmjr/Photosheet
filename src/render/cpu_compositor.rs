@@ -536,6 +536,31 @@ mod tests {
     }
 
     #[test]
+    fn applies_clockwise_rotation_around_layer_center() {
+        let mut document = Document::new(2, 2, 72.0);
+        let mut layer = Layer::new_pixel(
+            "rotated".to_string(),
+            2,
+            2,
+            LayerTransform::new(Point::ZERO, Size::new(2.0, 2.0)),
+        );
+        layer.transform.rotation = 90.0;
+        let LayerKind::Pixel { pixels, .. } = &mut layer.kind else {
+            unreachable!();
+        };
+        *pixels = Some(vec![
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ]);
+        document.add_layer(layer);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(
+            surface.pixels,
+            vec![0, 0, 255, 255, 255, 0, 0, 255, 255, 255, 255, 255, 0, 255, 0, 255,]
+        );
+    }
+
+    #[test]
     fn applies_non_separable_color_blend() {
         let mut document = Document::new(1, 1, 72.0);
         document.add_layer(pixel_layer("bottom", vec![128, 128, 128, 255]));
