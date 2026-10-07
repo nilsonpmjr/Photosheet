@@ -362,11 +362,7 @@ fn composite_pixel(
         destination[1] as f32 / 255.0,
         destination[2] as f32 / 255.0,
     ];
-    let blended = [
-        blend_mode.blend_channel(source_rgb[0], destination_rgb[0]),
-        blend_mode.blend_channel(source_rgb[1], destination_rgb[1]),
-        blend_mode.blend_channel(source_rgb[2], destination_rgb[2]),
-    ];
+    let blended = blend_rgb(blend_mode, source_rgb, destination_rgb);
     let output_alpha = source_alpha + destination_alpha * (1.0 - source_alpha);
     let output_rgb = if output_alpha > 0.0 {
         [
@@ -390,6 +386,68 @@ fn composite_pixel(
     destination[1] = (output_rgb[1].clamp(0.0, 1.0) * 255.0).round() as u8;
     destination[2] = (output_rgb[2].clamp(0.0, 1.0) * 255.0).round() as u8;
     destination[3] = (output_alpha * 255.0).round() as u8;
+}
+
+fn blend_rgb(mode: LayerBlendMode, source: [f32; 3], destination: [f32; 3]) -> [f32; 3] {
+    match mode {
+        LayerBlendMode::Hue => set_luminosity(
+            set_saturation(source, saturation(destination)),
+            luminosity(destination),
+        ),
+        LayerBlendMode::Saturation => set_luminosity(
+            set_saturation(destination, saturation(source)),
+            luminosity(destination),
+        ),
+        LayerBlendMode::Color => set_luminosity(source, luminosity(destination)),
+        LayerBlendMode::Luminosity => set_luminosity(destination, luminosity(source)),
+        _ => [
+            mode.blend_channel(source[0], destination[0]),
+            mode.blend_channel(source[1], destination[1]),
+            mode.blend_channel(source[2], destination[2]),
+        ],
+    }
+}
+
+fn luminosity(color: [f32; 3]) -> f32 {
+    0.3 * color[0] + 0.59 * color[1] + 0.11 * color[2]
+}
+
+fn saturation(color: [f32; 3]) -> f32 {
+    let min = color[0].min(color[1]).min(color[2]);
+    let max = color[0].max(color[1]).max(color[2]);
+    max - min
+}
+
+fn set_luminosity(color: [f32; 3], target: f32) -> [f32; 3] {
+    clip_color(color.map(|component| component + target - luminosity(color)))
+}
+
+fn clip_color(mut color: [f32; 3]) -> [f32; 3] {
+    let lum = luminosity(color);
+    let min = color[0].min(color[1]).min(color[2]);
+    let max = color[0].max(color[1]).max(color[2]);
+    if min < 0.0 {
+        color = color.map(|component| lum + (component - lum) * lum / (lum - min));
+    }
+    if max > 1.0 {
+        color = color.map(|component| lum + (component - lum) * (1.0 - lum) / (max - lum));
+    }
+    color
+}
+
+fn set_saturation(color: [f32; 3], target: f32) -> [f32; 3] {
+    let mut order = [(color[0], 0), (color[1], 1), (color[2], 2)];
+    order.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let (min, min_index) = order[0];
+    let (mid, mid_index) = order[1];
+    let (max, max_index) = order[2];
+    let mut result = [0.0; 3];
+    if max > min {
+        result[mid_index] = (mid - min) * target / (max - min);
+        result[max_index] = target;
+    }
+    result[min_index] = 0.0;
+    result
 }
 
 #[cfg(test)]
@@ -475,5 +533,17 @@ mod tests {
 
         let surface = CpuCompositor::render(&document).unwrap();
         assert_eq!(surface.pixels, vec![0, 0, 255, 255, 255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn applies_non_separable_color_blend() {
+        let mut document = Document::new(1, 1, 72.0);
+        document.add_layer(pixel_layer("bottom", vec![128, 128, 128, 255]));
+        let mut top = pixel_layer("top", vec![255, 0, 0, 255]);
+        top.blend_mode = LayerBlendMode::Color;
+        document.add_layer(top);
+
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(surface.pixels, vec![255, 73, 73, 255]);
     }
 }
