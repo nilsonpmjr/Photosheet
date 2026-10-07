@@ -210,6 +210,25 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
         }
         return;
     }
+    if adjustment.kind == AdjustmentKind::AddNoise {
+        let amount = (adjustment.noise_amount.unwrap_or(10.0) / 100.0).clamp(0.0, 1.0) as f32;
+        let seed = adjustment.noise_seed.unwrap_or(0);
+        let monochromatic = adjustment.noise_monochromatic.unwrap_or(false);
+        for (pixel_index, pixel) in surface.pixels.chunks_exact_mut(4).enumerate() {
+            let shared = noise_sample(pixel_index as u32, seed);
+            for channel in 0..3 {
+                let sample = if monochromatic {
+                    shared
+                } else {
+                    noise_sample(pixel_index as u32 * 3 + channel as u32, seed)
+                };
+                let original = pixel[channel] as f32 / 255.0;
+                let noisy = (original + sample * amount).clamp(0.0, 1.0);
+                pixel[channel] = ((original + (noisy - original) * opacity) * 255.0).round() as u8;
+            }
+        }
+        return;
+    }
     for pixel in surface.pixels.chunks_exact_mut(4) {
         let original = [
             pixel[0] as f32 / 255.0,
@@ -227,6 +246,16 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
                 ((before + (after - before) * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
+}
+
+fn noise_sample(index: u32, seed: u32) -> f32 {
+    let mut value = index.wrapping_add(seed).wrapping_add(0x9e37_79b9);
+    value ^= value >> 16;
+    value = value.wrapping_mul(0x85eb_ca6b);
+    value ^= value >> 13;
+    value = value.wrapping_mul(0xc2b2_ae35);
+    value ^= value >> 16;
+    (value as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
 
 fn gaussian_blur(surface: &CompositeSurface, sigma: f32) -> Vec<u8> {
@@ -1245,5 +1274,28 @@ mod tests {
         assert!(surface.pixels[0] > 0);
         assert!(surface.pixels[4] < 255 && surface.pixels[4] > surface.pixels[0]);
         assert_eq!(surface.pixels[3], 255);
+    }
+
+    #[test]
+    fn applies_seeded_noise_deterministically() {
+        fn render(seed: u32) -> Vec<u8> {
+            let mut document = Document::new(1, 1, 72.0);
+            document.add_layer(pixel_layer("base", vec![128, 128, 128, 255]));
+            let mut noise = LayerAdjustment::add_noise(50.0, false, true);
+            noise.noise_seed = Some(seed);
+            document.add_layer(Layer::new_adjustment(
+                "noise".to_string(),
+                noise,
+                LayerTransform::new(Point::ZERO, Size::new(1.0, 1.0)),
+            ));
+            CpuCompositor::render(&document).unwrap().pixels
+        }
+
+        let first = render(42);
+        assert_eq!(first, render(42));
+        assert_ne!(first, render(43));
+        assert_eq!(first[0], first[1]);
+        assert_eq!(first[1], first[2]);
+        assert_eq!(first[3], 255);
     }
 }
