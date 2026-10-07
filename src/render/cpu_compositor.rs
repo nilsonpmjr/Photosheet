@@ -546,4 +546,38 @@ mod tests {
         let surface = CpuCompositor::render(&document).unwrap();
         assert_eq!(surface.pixels, vec![255, 74, 74, 255]);
     }
+
+    #[test]
+    fn applies_every_separable_blend_mode() {
+        let source = [204, 51, 153, 255];
+        let backdrop = [51, 178, 102, 255];
+        for mode in LayerBlendMode::all() {
+            if matches!(
+                mode,
+                LayerBlendMode::Hue
+                    | LayerBlendMode::Saturation
+                    | LayerBlendMode::Color
+                    | LayerBlendMode::Luminosity
+            ) {
+                continue;
+            }
+            let mut document = Document::new(1, 1, 72.0);
+            document.add_layer(pixel_layer("bottom", backdrop.to_vec()));
+            let mut top = pixel_layer("top", source.to_vec());
+            top.blend_mode = *mode;
+            document.add_layer(top);
+
+            let surface = CpuCompositor::render(&document).unwrap();
+            let expected = [
+                (mode.blend_channel(source[0] as f32 / 255.0, backdrop[0] as f32 / 255.0) * 255.0)
+                    .round() as u8,
+                (mode.blend_channel(source[1] as f32 / 255.0, backdrop[1] as f32 / 255.0) * 255.0)
+                    .round() as u8,
+                (mode.blend_channel(source[2] as f32 / 255.0, backdrop[2] as f32 / 255.0) * 255.0)
+                    .round() as u8,
+                255,
+            ];
+            assert_eq!(surface.pixels, expected, "{}", mode.name());
+        }
+    }
 }
