@@ -611,6 +611,15 @@ fn draw_layer(
         return;
     }
     let opacity = opacity.clamp(0.0, 1.0) as f32;
+    draw_outer_effects(
+        destination,
+        source,
+        source_width,
+        source_height,
+        transform,
+        opacity,
+        effects,
+    );
     for y in 0..destination.height {
         for x in 0..destination.width {
             let Some((source_x, source_y)) = source_coordinate(
@@ -639,6 +648,78 @@ fn draw_layer(
                 source[source_index + 1] as f32 / 255.0,
                 source[source_index + 2] as f32 / 255.0,
             ];
+            if let Some(stroke) = effects
+                .and_then(|effects| effects.stroke.as_ref())
+                .filter(|stroke| stroke.enabled.unwrap_or(true) && stroke.inside)
+            {
+                let radius = stroke.size.max(1.0).ceil() as isize;
+                if is_alpha_edge(
+                    source,
+                    source_width,
+                    source_height,
+                    source_x,
+                    source_y,
+                    radius,
+                ) {
+                    let amount = stroke.opacity.clamp(0.0, 1.0) as f32;
+                    let stroke_rgb = [
+                        stroke.red.clamp(0.0, 1.0) as f32,
+                        stroke.green.clamp(0.0, 1.0) as f32,
+                        stroke.blue.clamp(0.0, 1.0) as f32,
+                    ];
+                    for channel in 0..3 {
+                        source_rgb[channel] += (stroke_rgb[channel] - source_rgb[channel]) * amount;
+                    }
+                }
+            }
+            if let Some(shadow) = effects
+                .and_then(|effects| effects.inner_shadow.as_ref())
+                .filter(|shadow| shadow.enabled.unwrap_or(true))
+            {
+                let radius = shadow.blur.max(1.0).ceil() as isize;
+                if is_alpha_edge(
+                    source,
+                    source_width,
+                    source_height,
+                    source_x,
+                    source_y,
+                    radius,
+                ) {
+                    let amount = shadow.opacity.clamp(0.0, 1.0) as f32;
+                    let rgb = [
+                        shadow.red.clamp(0.0, 1.0) as f32,
+                        shadow.green.clamp(0.0, 1.0) as f32,
+                        shadow.blue.clamp(0.0, 1.0) as f32,
+                    ];
+                    for channel in 0..3 {
+                        source_rgb[channel] += (rgb[channel] - source_rgb[channel]) * amount;
+                    }
+                }
+            }
+            if let Some(glow) = effects
+                .and_then(|effects| effects.inner_glow.as_ref())
+                .filter(|glow| glow.enabled.unwrap_or(true))
+            {
+                let radius = glow.size.max(1.0).ceil() as isize;
+                if is_alpha_edge(
+                    source,
+                    source_width,
+                    source_height,
+                    source_x,
+                    source_y,
+                    radius,
+                ) {
+                    let amount = glow.opacity.clamp(0.0, 1.0) as f32;
+                    let rgb = [
+                        glow.red.clamp(0.0, 1.0) as f32,
+                        glow.green.clamp(0.0, 1.0) as f32,
+                        glow.blue.clamp(0.0, 1.0) as f32,
+                    ];
+                    for channel in 0..3 {
+                        source_rgb[channel] += (rgb[channel] - source_rgb[channel]) * amount;
+                    }
+                }
+            }
             if let Some(overlay) = effects
                 .and_then(|effects| effects.color_overlay.as_ref())
                 .filter(|overlay| overlay.enabled.unwrap_or(true))
@@ -663,6 +744,129 @@ fn draw_layer(
             );
         }
     }
+}
+
+fn draw_outer_effects(
+    destination: &mut CompositeSurface,
+    source: &[u8],
+    width: usize,
+    height: usize,
+    transform: &LayerTransform,
+    opacity: f32,
+    effects: Option<&LayerEffects>,
+) {
+    let Some(effects) = effects else { return };
+    for y in 0..destination.height {
+        for x in 0..destination.width {
+            if source_alpha_at(
+                source,
+                width,
+                height,
+                transform,
+                x as f64 + 0.5,
+                y as f64 + 0.5,
+            ) > 0.0
+            {
+                continue;
+            }
+            let index = (y * destination.width + x) * 4;
+            if let Some(shadow) = effects
+                .shadow
+                .as_ref()
+                .filter(|effect| effect.enabled.unwrap_or(true))
+            {
+                let angle = shadow.angle.to_radians();
+                let source_x = x as f64 + 0.5 + angle.cos() * shadow.distance;
+                let source_y = y as f64 + 0.5 - angle.sin() * shadow.distance;
+                let alpha = source_alpha_at(source, width, height, transform, source_x, source_y)
+                    * shadow.opacity.clamp(0.0, 1.0) as f32
+                    * opacity;
+                composite_pixel(
+                    &mut destination.pixels[index..index + 4],
+                    [
+                        shadow.red.clamp(0.0, 1.0) as f32,
+                        shadow.green.clamp(0.0, 1.0) as f32,
+                        shadow.blue.clamp(0.0, 1.0) as f32,
+                    ],
+                    alpha,
+                    LayerBlendMode::Normal,
+                );
+            }
+            if let Some(glow) = effects
+                .outer_glow
+                .as_ref()
+                .filter(|effect| effect.enabled.unwrap_or(true))
+            {
+                let radius = glow.size.max(1.0).ceil() as isize;
+                let mut coverage: f32 = 0.0;
+                for dy in -radius..=radius {
+                    for dx in -radius..=radius {
+                        coverage = coverage.max(source_alpha_at(
+                            source,
+                            width,
+                            height,
+                            transform,
+                            x as f64 + 0.5 + dx as f64,
+                            y as f64 + 0.5 + dy as f64,
+                        ));
+                    }
+                }
+                composite_pixel(
+                    &mut destination.pixels[index..index + 4],
+                    [
+                        glow.red.clamp(0.0, 1.0) as f32,
+                        glow.green.clamp(0.0, 1.0) as f32,
+                        glow.blue.clamp(0.0, 1.0) as f32,
+                    ],
+                    coverage * glow.opacity.clamp(0.0, 1.0) as f32 * opacity,
+                    LayerBlendMode::Normal,
+                );
+            }
+        }
+    }
+}
+
+fn source_alpha_at(
+    source: &[u8],
+    width: usize,
+    height: usize,
+    transform: &LayerTransform,
+    x: f64,
+    y: f64,
+) -> f32 {
+    source_coordinate(transform, width, height, x, y).map_or(0.0, |(sx, sy)| {
+        source[(sy * width + sx) * 4 + 3] as f32 / 255.0
+    })
+}
+
+fn is_alpha_edge(
+    source: &[u8],
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    radius: isize,
+) -> bool {
+    for offset_y in -radius..=radius {
+        for offset_x in -radius..=radius {
+            if offset_x == 0 && offset_y == 0 {
+                continue;
+            }
+            let sample_x = x as isize + offset_x;
+            let sample_y = y as isize + offset_y;
+            if sample_x < 0
+                || sample_y < 0
+                || sample_x >= width as isize
+                || sample_y >= height as isize
+            {
+                return true;
+            }
+            if source[(sample_y as usize * width + sample_x as usize) * 4 + 3] == 0 {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1485,5 +1689,91 @@ mod tests {
 
         let surface = CpuCompositor::render(&document).unwrap();
         assert_eq!(surface.pixels, vec![128, 0, 128, 255]);
+    }
+
+    #[test]
+    fn renders_outer_shadow_and_glow_outside_raster_content() {
+        let mut document = Document::new(3, 1, 72.0);
+        let mut layer = Layer::new_pixel(
+            "pixel".to_string(),
+            1,
+            1,
+            LayerTransform::new(Point::new(1.0, 0.0), Size::new(1.0, 1.0)),
+        );
+        if let LayerKind::Pixel { pixels, .. } = &mut layer.kind {
+            *pixels = Some(vec![255, 255, 255, 255]);
+        }
+        layer.effects = Some(LayerEffects {
+            shadow: Some(crate::core::effects::ShadowEffect {
+                enabled: Some(true),
+                angle: 0.0,
+                distance: 1.0,
+                blur: 0.0,
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+                opacity: 1.0,
+            }),
+            outer_glow: Some(crate::core::effects::GlowEffect {
+                enabled: Some(true),
+                size: 1.0,
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                opacity: 1.0,
+            }),
+            ..Default::default()
+        });
+        document.add_layer(layer);
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(&surface.pixels[0..4], &[255, 0, 0, 255]);
+        assert_eq!(&surface.pixels[8..12], &[255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn applies_inner_effects_and_stroke_at_alpha_edges() {
+        let mut document = Document::new(2, 1, 72.0);
+        let mut layer = Layer::new_pixel(
+            "pixel".to_string(),
+            2,
+            1,
+            LayerTransform::new(Point::ZERO, Size::new(2.0, 1.0)),
+        );
+        if let LayerKind::Pixel { pixels, .. } = &mut layer.kind {
+            *pixels = Some(vec![255, 255, 255, 255, 0, 0, 0, 0]);
+        }
+        layer.effects = Some(LayerEffects {
+            stroke: Some(crate::core::effects::StrokeEffect {
+                enabled: Some(true),
+                size: 1.0,
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+                opacity: 1.0,
+                inside: true,
+            }),
+            inner_shadow: Some(crate::core::effects::ShadowEffect {
+                enabled: Some(true),
+                angle: 0.0,
+                distance: 0.0,
+                blur: 1.0,
+                red: 0.0,
+                green: 1.0,
+                blue: 0.0,
+                opacity: 1.0,
+            }),
+            inner_glow: Some(crate::core::effects::GlowEffect {
+                enabled: Some(true),
+                size: 1.0,
+                red: 0.0,
+                green: 0.0,
+                blue: 1.0,
+                opacity: 1.0,
+            }),
+            ..Default::default()
+        });
+        document.add_layer(layer);
+        let surface = CpuCompositor::render(&document).unwrap();
+        assert_eq!(&surface.pixels[0..4], &[0, 0, 255, 255]);
     }
 }
