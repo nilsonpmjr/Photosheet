@@ -489,11 +489,14 @@ impl EditorSession {
             Some(id) => id,
             None => return false,
         };
+        if self.document.as_ref().and_then(|doc| doc.find_layer(active_id)).is_some_and(|layer| layer.is_locked) {
+            return false;
+        }
 
+        self.push_history("Excluir Camada");
         if let Some(doc) = self.document.as_mut() {
             doc.remove_layer(active_id);
         }
-        self.push_history("Excluir Camada");
         true
     }
 
@@ -505,11 +508,45 @@ impl EditorSession {
         clone.name = format!("{} (cópia)", clone.name);
         let clone_id = clone.id;
 
+        self.push_history("Duplicar Camada");
         if let Some(doc) = self.document.as_mut() {
             doc.add_layer(clone);
         }
-        self.push_history("Duplicar Camada");
         Some(clone_id)
+    }
+
+    pub fn rename_active_layer(&mut self, name: String) -> bool {
+        let name = name.trim();
+        if name.is_empty() || name.len() > 16_384 {
+            return false;
+        }
+        let Some(layer) = self.document.as_ref().and_then(Document::active_layer) else {
+            return false;
+        };
+        if layer.is_locked || layer.name == name {
+            return false;
+        }
+        self.push_history("Renomear Camada");
+        if let Some(layer) = self.document.as_mut().and_then(Document::active_layer_mut) {
+            layer.name = name.to_string();
+            return true;
+        }
+        false
+    }
+
+    pub fn set_active_layer_locked(&mut self, locked: bool) -> bool {
+        let Some(layer) = self.document.as_ref().and_then(Document::active_layer) else {
+            return false;
+        };
+        if layer.is_locked == locked {
+            return false;
+        }
+        self.push_history(if locked { "Bloquear Camada" } else { "Desbloquear Camada" });
+        if let Some(layer) = self.document.as_mut().and_then(Document::active_layer_mut) {
+            layer.is_locked = locked;
+            return true;
+        }
+        false
     }
 
     pub fn toggle_active_layer_visibility(&mut self) -> bool {
@@ -707,5 +744,20 @@ mod tests {
         assert_eq!(style.font_size, 18.0);
         assert_eq!(layer.transform.origin, Point { x: 4.0, y: 8.0 });
         assert_eq!(pixels.len(), width * height * 4);
+    }
+
+    #[test]
+    fn renames_locks_and_restores_layer_operations() {
+        let mut session = EditorSession::with_document(Document::new(10, 10, 72.0));
+        session.add_empty_layer(Some("Original".to_string()));
+        assert!(session.rename_active_layer("Renomeada".to_string()));
+        assert_eq!(session.document.as_ref().unwrap().active_layer().unwrap().name, "Renomeada");
+        assert!(session.set_active_layer_locked(true));
+        assert!(!session.delete_active_layer());
+        assert!(session.set_active_layer_locked(false));
+        assert!(session.delete_active_layer());
+        assert!(session.undo());
+        assert_eq!(session.document.as_ref().unwrap().layers.len(), 1);
+        assert_eq!(session.document.as_ref().unwrap().active_layer().unwrap().name, "Renomeada");
     }
 }
