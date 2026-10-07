@@ -549,6 +549,67 @@ impl EditorSession {
         false
     }
 
+    /// Achata a layer ativa sobre a imediatamente abaixo. O resultado usa a
+    /// superfície do compositor de referência, então mantém opacity, blend,
+    /// máscara e efeitos das duas layers antes de se tornar raster comum.
+    pub fn merge_active_down(&mut self) -> bool {
+        let Some(document) = self.document.as_ref() else {
+            return false;
+        };
+        let Some(active_id) = document.active_layer_id else {
+            return false;
+        };
+        let Some(upper_index) = document.layers.iter().position(|layer| layer.id == active_id) else {
+            return false;
+        };
+        if upper_index == 0 {
+            return false;
+        }
+        let lower = &document.layers[upper_index - 1];
+        let upper = &document.layers[upper_index];
+        if lower.is_locked || upper.is_locked || lower.is_group || upper.is_group || lower.parent_id != upper.parent_id {
+            return false;
+        }
+
+        let mut flatten = Document::new(document.width, document.height, document.resolution);
+        let mut base = lower.clone();
+        let mut top = upper.clone();
+        // O compositor temporário contém somente estas duas layers; os pais
+        // não participam porque a opacidade já pertence às layers a achatar.
+        base.parent_id = None;
+        top.parent_id = None;
+        flatten.layers = vec![base, top];
+        let Ok(surface) = crate::render::cpu_compositor::CpuCompositor::render(&flatten) else {
+            return false;
+        };
+
+        self.push_history("Mesclar Camada Abaixo");
+        let Some(document) = self.document.as_mut() else {
+            return false;
+        };
+        let mut merged = document.layers[upper_index - 1].clone();
+        merged.opacity = 1.0;
+        merged.blend_mode = LayerBlendMode::Normal;
+        merged.transform = LayerTransform::new(
+            Point::ZERO,
+            Size { width: document.width as f64, height: document.height as f64 },
+        );
+        merged.mask = None;
+        merged.clipping_base_id = None;
+        merged.effects = None;
+        merged.kind = LayerKind::Pixel {
+            image_file: None,
+            pixels: Some(surface.pixels),
+            width: document.width,
+            height: document.height,
+        };
+        document.layers[upper_index - 1] = merged;
+        document.layers.remove(upper_index);
+        document.active_layer_id = Some(document.layers[upper_index - 1].id);
+        self.is_dirty = true;
+        true
+    }
+
     pub fn toggle_active_layer_visibility(&mut self) -> bool {
         if let Some(doc) = self.document.as_mut() {
             if let Some(layer) = doc.active_layer_mut() {
@@ -759,5 +820,33 @@ mod tests {
         assert!(session.undo());
         assert_eq!(session.document.as_ref().unwrap().layers.len(), 1);
         assert_eq!(session.document.as_ref().unwrap().active_layer().unwrap().name, "Renomeada");
+    }
+
+    #[test]
+    fn merges_active_layer_down_using_compositor_output() {
+        let mut document = Document::new(1, 1, 72.0);
+        let mut lower = Layer::new_pixel(
+            "Lower".to_string(), 1, 1,
+            LayerTransform::new(Point::ZERO, Size { width: 1.0, height: 1.0 }),
+        );
+        let LayerKind::Pixel { pixels: Some(pixels), .. } = &mut lower.kind else { unreachable!() };
+        pixels.copy_from_slice(&[255, 0, 0, 255]);
+        document.add_layer(lower);
+        let mut upper = Layer::new_pixel(
+            "Upper".to_string(), 1, 1,
+            LayerTransform::new(Point::ZERO, Size { width: 1.0, height: 1.0 }),
+        );
+        let LayerKind::Pixel { pixels: Some(pixels), .. } = &mut upper.kind else { unreachable!() };
+        pixels.copy_from_slice(&[0, 0, 255, 255]);
+        document.add_layer(upper);
+        let mut session = EditorSession::with_document(document);
+
+        assert!(session.merge_active_down());
+        let document = session.document.as_ref().unwrap();
+        assert_eq!(document.layers.len(), 1);
+        let LayerKind::Pixel { pixels: Some(pixels), .. } = &document.layers[0].kind else { unreachable!() };
+        assert_eq!(pixels, &vec![0, 0, 255, 255]);
+        assert!(session.undo());
+        assert_eq!(session.document.as_ref().unwrap().layers.len(), 2);
     }
 }
