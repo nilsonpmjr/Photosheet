@@ -4,7 +4,7 @@
 //! amostragem passam a ter a mesma definição de composição antes de cada um
 //! ganhar uma implementação acelerada.
 
-use crate::core::adjustment::{AdjustmentKind, LayerAdjustment};
+use crate::core::adjustment::{AdjustmentKind, LayerAdjustment, LevelsChannel};
 use crate::core::blend::LayerBlendMode;
 use crate::core::document::Document;
 use crate::core::layer::{Layer, LayerKind};
@@ -111,6 +111,20 @@ fn apply_adjustment(surface: &mut CompositeSurface, adjustment: &LayerAdjustment
 fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3]> {
     match adjustment.kind {
         AdjustmentKind::Invert => Some(color.map(|component| 1.0 - component)),
+        AdjustmentKind::Levels => Some([
+            apply_levels(
+                apply_levels(color[0], &adjustment.levels.rgb),
+                &adjustment.levels.red,
+            ),
+            apply_levels(
+                apply_levels(color[1], &adjustment.levels.rgb),
+                &adjustment.levels.green,
+            ),
+            apply_levels(
+                apply_levels(color[2], &adjustment.levels.rgb),
+                &adjustment.levels.blue,
+            ),
+        ]),
         AdjustmentKind::BlackWhite => {
             let luma = luminosity(color);
             Some([luma; 3])
@@ -141,6 +155,15 @@ fn adjusted_rgb(adjustment: &LayerAdjustment, color: [f32; 3]) -> Option<[f32; 3
         }
         _ => None,
     }
+}
+
+fn apply_levels(component: f32, levels: &LevelsChannel) -> f32 {
+    let input_span = (levels.in_white - levels.in_black).max(0.0001) as f32;
+    let normalized = ((component * 255.0 - levels.in_black as f32) / input_span).clamp(0.0, 1.0);
+    let gamma = levels.in_gamma.max(0.01) as f32;
+    let mapped = normalized.powf(1.0 / gamma);
+    ((levels.out_black as f32 + mapped * (levels.out_white - levels.out_black) as f32) / 255.0)
+        .clamp(0.0, 1.0)
 }
 
 fn rgb_to_hsl(color: [f32; 3]) -> (f32, f32, f32) {
@@ -757,6 +780,13 @@ mod tests {
 
         let exposure = adjusted_rgb(&LayerAdjustment::exposure(1.0, 0.0, 1.0), [0.25; 3]).unwrap();
         assert_eq!(exposure, [0.5; 3]);
+
+        let levels = adjusted_rgb(
+            &LayerAdjustment::levels(0.0, 2.0, 255.0, 0.0, 255.0),
+            [0.25; 3],
+        )
+        .unwrap();
+        assert_eq!(levels, [0.5; 3]);
 
         let black_and_white =
             adjusted_rgb(&LayerAdjustment::black_and_white(), [1.0, 0.0, 0.0]).unwrap();
