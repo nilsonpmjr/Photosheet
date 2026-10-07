@@ -310,6 +310,25 @@ impl PhotosheetWindow {
             let session = Rc::clone(&self.session);
             let layers_panel = Rc::clone(&self.layers_panel);
             let lp = Rc::clone(&layers_panel);
+            layers_panel.connect_select_layer(move |id| {
+                let (changed, layers, active_id) = {
+                    let mut s = session.borrow_mut();
+                    let changed = s.select_layer(id);
+                    let (layers, active_id) = match &s.document {
+                        Some(doc) => (doc.layers.clone(), doc.active_layer_id),
+                        None => (Vec::new(), None),
+                    };
+                    (changed, layers, active_id)
+                };
+                if changed {
+                    lp.update_layers(&layers, active_id);
+                }
+            });
+        }
+        {
+            let session = Rc::clone(&self.session);
+            let layers_panel = Rc::clone(&self.layers_panel);
+            let lp = Rc::clone(&layers_panel);
             layers_panel.connect_toggle_lock(move |id| {
                 let (layers, active_id) = {
                     let mut s = session.borrow_mut();

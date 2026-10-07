@@ -515,6 +515,18 @@ impl EditorSession {
         Some(clone_id)
     }
 
+    /// Torna uma camada existente a ativa sem criar uma entrada no histórico.
+    pub fn select_layer(&mut self, id: Uuid) -> bool {
+        let Some(document) = self.document.as_mut() else {
+            return false;
+        };
+        if document.active_layer_id == Some(id) || document.find_layer(id).is_none() {
+            return false;
+        }
+        document.active_layer_id = Some(id);
+        true
+    }
+
     pub fn rename_active_layer(&mut self, name: String) -> bool {
         let name = name.trim();
         if name.is_empty() || name.len() > 16_384 {
@@ -704,6 +716,12 @@ mod tests {
         let l2 = session.add_empty_layer(Some("Pintura".into())).unwrap();
         assert_eq!(session.document.as_ref().unwrap().layers.len(), 2);
         assert_eq!(session.document.as_ref().unwrap().active_layer_id, Some(l2));
+
+        assert!(session.select_layer(l1));
+        assert_eq!(session.document.as_ref().unwrap().active_layer_id, Some(l1));
+        assert!(!session.select_layer(l1));
+        assert!(!session.select_layer(Uuid::new_v4()));
+        assert!(session.select_layer(l2));
 
         // Teste de opacidade e blend mode
         session.set_active_layer_opacity(0.5);

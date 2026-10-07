@@ -172,6 +172,21 @@ impl LayersPanel {
         let on_toggle_visibility = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
         let on_toggle_lock = Rc::new(RefCell::new(None::<Box<dyn Fn(Uuid)>>));
 
+        {
+            let cb = Rc::clone(&on_select_layer);
+            layers_list.connect_row_selected(move |_list, row| {
+                let Some(row) = row else {
+                    return;
+                };
+                let Ok(id) = Uuid::parse_str(&row.widget_name()) else {
+                    return;
+                };
+                if let Some(ref f) = *cb.borrow() {
+                    f(id);
+                }
+            });
+        }
+
         // Callbacks de botões
         {
             let cb = Rc::clone(&on_add_layer);
@@ -275,6 +290,7 @@ impl LayersPanel {
         // Inverter a ordem para exibição: a camada superior aparece no topo da lista UI
         for layer in layers.iter().rev() {
             let row = ListBoxRow::new();
+            row.set_widget_name(&layer.id.to_string());
             let row_box = GtkBox::new(Orientation::Horizontal, 8);
             row_box.set_margin_start(8);
             row_box.set_margin_end(8);
@@ -336,7 +352,7 @@ impl LayersPanel {
             row.set_child(Some(&row_box));
 
             if Some(layer.id) == active_id {
-                row.add_css_class("selected");
+                self.layers_list.select_row(Some(&row));
             }
 
             self.layers_list.append(&row);
