@@ -1,0 +1,36 @@
+[package]
+name = "photosheet"
+version = "1.4.5"
+edition = "2021"
+authors = ["Nilson Miranda <nilsonpmjr@gmail.com>"]
+description = "Native Linux port of Compositor image editor using GTK4, Rust and Vulkan"
+license = "MIT"
+
+[dependencies]
+# GUI (GTK4 + Libadwaita)
+gtk4 = { version = "0.9", features = ["v4_12"] }
+libadwaita = { version = "0.7", features = ["v1_5"] }
+
+# GPU & Rendering
+wgpu = { version = "23.0", features = ["wgsl", "spirv"] }
+bytemuck = { version = "1.19", features = ["derive"] }
+
+# Serialization & Formats
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Concurrency & Math
+crossbeam-channel = "0.5"
+rayon = "1.10"
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

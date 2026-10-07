@@ -1,17 +1,32 @@
 #include "DitherPixels.h"
 #include <math.h>
 #include <stdlib.h>
+
+#if defined(__APPLE__)
 #include <dispatch/dispatch.h>
+#endif
 
 static inline float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
-// Runs `body` over `count` items split into a few runs per core, each a (start, end) range, all at once.
-static void in_bands(size_t count, void (^body)(size_t start, size_t end)) {
+typedef void (*BandWorker)(size_t start, size_t end, void *ctx);
+
+// Runs `worker` over `count` items split into a few runs per core, each a (start, end) range.
+static void run_bands(size_t count, BandWorker worker, void *ctx) {
     size_t bands = count < 64 ? 1 : 32, size = (count + bands - 1) / bands;
+#if defined(__APPLE__)
     dispatch_apply(bands, DISPATCH_APPLY_AUTO, ^(size_t band) {
         size_t start = band * size, end = start + size < count ? start + size : count;
-        if (start < end) body(start, end);
+        if (start < end) worker(start, end, ctx);
     });
+#else
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif
+    for (size_t band = 0; band < bands; ++band) {
+        size_t start = band * size, end = start + size < count ? start + size : count;
+        if (start < end) worker(start, end, ctx);
+    }
+#endif
 }
 
 // Density darkens (positive) or lightens as a gamma, so black and white stay put; contrast pivots on mid gray.
@@ -124,6 +139,114 @@ static inline void write_pixel(uint8_t *px, float r, float g, float b) {
     px[2] = (uint8_t)lroundf(clamp01(b) * a * 255.0f);
 }
 
+typedef struct {
+    uint8_t *rgba;
+    size_t stride;
+    size_t width;
+    size_t count;
+    uint8_t *alpha;
+    float *tone;
+    float *source;
+    const DitherParams *p;
+    float gamma;
+    float contrast;
+} DitherPrepCtx;
+
+static void dither_prep_worker(size_t first, size_t last, void *arg) {
+    const DitherPrepCtx *ctx = (const DitherPrepCtx *)arg;
+    for (size_t y = first; y < last; ++y) {
+        const uint8_t *row = ctx->rgba + y * ctx->stride;
+        for (size_t x = 0; x < ctx->width; ++x) {
+            const uint8_t *px = row + x * 4;
+            size_t at = y * ctx->width + x;
+            ctx->alpha[at] = px[3];
+            float r = 0, g = 0, b = 0;
+            if (px[3]) {
+                float scale = 1.0f / (float)px[3];
+                r = px[0] * scale; g = px[1] * scale; b = px[2] * scale;
+            }
+            if (ctx->p->originalColors) {
+                ctx->tone[at] = adjust_tone(r, ctx->gamma, ctx->contrast);
+                ctx->tone[ctx->count + at] = adjust_tone(g, ctx->gamma, ctx->contrast);
+                ctx->tone[2 * ctx->count + at] = adjust_tone(b, ctx->gamma, ctx->contrast);
+                ctx->source[at * 3] = r; ctx->source[at * 3 + 1] = g; ctx->source[at * 3 + 2] = b;
+            } else {
+                ctx->tone[at] = adjust_tone(0.2126f * r + 0.7152f * g + 0.0722f * b, ctx->gamma, ctx->contrast);
+            }
+        }
+    }
+}
+
+typedef struct {
+    uint8_t *rgba;
+    size_t stride;
+    size_t width;
+    size_t height;
+    size_t count;
+    int planes;
+    size_t spacing;
+    float middle;
+    float dots;
+    const float *screen;
+    const float *phosphor;
+    const uint8_t *alpha;
+    const float *tone;
+    const DitherParams *p;
+    int failed;
+} DitherScanlinesCtx;
+
+static void dither_scanlines_worker(size_t firstLine, size_t lastLine, void *arg) {
+    DitherScanlinesCtx *ctx = (DitherScanlinesCtx *)arg;
+    float *scan = malloc(ctx->width * sizeof(float) * (size_t)ctx->planes);
+    if (!scan) { ctx->failed = 1; return; }
+    for (size_t line = firstLine; line < lastLine; ++line) {
+        size_t top = line * ctx->spacing;
+        size_t bottom = top + ctx->spacing < ctx->height ? top + ctx->spacing : ctx->height;
+        float wave = sinf((float)line * 0.45f) * 0.7f + sinf((float)line * 1.7f + 1.3f) * 0.3f;
+        long shift = lroundf(ctx->p->wobble * wave);
+        for (size_t x = 0; x < ctx->width; ++x) {
+            float sum[3] = { 0, 0, 0 }; int n = 0;
+            long sx = (long)x - shift;
+            if (sx >= 0 && sx < (long)ctx->width)
+                for (size_t y = top; y < bottom; ++y) {
+                    size_t at = y * ctx->width + (size_t)sx;
+                    if (!ctx->alpha[at]) continue;
+                    for (int c = 0; c < ctx->planes; ++c) sum[c] += ctx->tone[(size_t)c * ctx->count + at];
+                    ++n;
+                }
+            for (int c = 0; c < ctx->planes; ++c) scan[(size_t)c * ctx->width + x] = n ? sum[c] / (float)n : 0;
+        }
+        for (size_t y = top; y < bottom; ++y) {
+            uint8_t *row = ctx->rgba + y * ctx->stride;
+            float offset = fabsf((float)(y - top) + 0.5f - ctx->middle);
+            for (size_t x = 0; x < ctx->width; ++x) {
+                if (!ctx->alpha[y * ctx->width + x]) continue;
+                float along = fmodf((float)x + 0.5f, (float)ctx->spacing) - ctx->middle;
+                long centered = lroundf((float)x - along * ctx->dots);
+                size_t at = centered < 0 ? 0 : (size_t)centered >= ctx->width ? ctx->width - 1 : (size_t)centered;
+                float r, g, b, t;
+                if (ctx->p->originalColors) {
+                    r = scan[at]; g = scan[ctx->width + at]; b = scan[2 * ctx->width + at];
+                    t = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+                } else {
+                    t = scan[at];
+                    r = ctx->screen[0] + (ctx->phosphor[0] - ctx->screen[0]) * t;
+                    g = ctx->screen[1] + (ctx->phosphor[1] - ctx->screen[1]) * t;
+                    b = ctx->screen[2] + (ctx->phosphor[2] - ctx->screen[2]) * t;
+                }
+                r *= 1.35f; g *= 1.35f; b *= 1.35f;
+                float beam = ctx->middle * (0.2f + 0.5f * sqrtf(clamp01(t)));
+                float across = along * ctx->dots, distance = sqrtf(offset * offset + across * across);
+                float cover = clamp01(beam - distance + 0.5f);
+                float br = ctx->p->originalColors ? 0 : ctx->screen[0], bg = ctx->p->originalColors ? 0 : ctx->screen[1];
+                float bb = ctx->p->originalColors ? 0 : ctx->screen[2];
+                write_pixel(row + x * 4, br + (r - br) * cover, bg + (g - bg) * cover, bb + (b - bb) * cover);
+            }
+        }
+    }
+    free(scan);
+}
+
 int dither_apply(uint8_t *rgba, size_t width, size_t height, size_t stride, const DitherParams *p) {
     size_t count = width * height;
     if (!count) return 1;
@@ -136,29 +259,8 @@ int dither_apply(uint8_t *rgba, size_t width, size_t height, size_t stride, cons
 
     float gamma = exp2f(p->density * 1.5f);
     float contrast = p->contrast >= 0 ? 1.0f / (1.0f - 0.95f * p->contrast) : 1.0f + p->contrast;
-    in_bands(height, ^(size_t first, size_t last) {
-        for (size_t y = first; y < last; ++y) {
-            const uint8_t *row = rgba + y * stride;
-            for (size_t x = 0; x < width; ++x) {
-                const uint8_t *px = row + x * 4;
-                size_t at = y * width + x;
-                alpha[at] = px[3];
-                float r = 0, g = 0, b = 0;
-                if (px[3]) {
-                    float scale = 1.0f / (float)px[3];
-                    r = px[0] * scale; g = px[1] * scale; b = px[2] * scale;
-                }
-                if (p->originalColors) {
-                    tone[at] = adjust_tone(r, gamma, contrast);
-                    tone[count + at] = adjust_tone(g, gamma, contrast);
-                    tone[2 * count + at] = adjust_tone(b, gamma, contrast);
-                    source[at * 3] = r; source[at * 3 + 1] = g; source[at * 3 + 2] = b;
-                } else {
-                    tone[at] = adjust_tone(0.2126f * r + 0.7152f * g + 0.0722f * b, gamma, contrast);
-                }
-            }
-        }
-    });
+    DitherPrepCtx prepCtx = { rgba, stride, width, count, alpha, tone, source, p, gamma, contrast };
+    run_bands(height, dither_prep_worker, &prepCtx);
 
     float dark[3] = { p->dark[0] / 255.0f, p->dark[1] / 255.0f, p->dark[2] / 255.0f };
     float light[3] = { p->light[0] / 255.0f, p->light[1] / 255.0f, p->light[2] / 255.0f };
@@ -203,65 +305,12 @@ int dither_apply(uint8_t *rgba, size_t width, size_t height, size_t stride, cons
         // Each line is drawn on its own, so the lines are shared out across the cores.
         size_t lines = (height + spacing - 1) / spacing;
         const float *screen = dark, *phosphor = light;
-        __block int failed = 0;
-        in_bands(lines, ^(size_t firstLine, size_t lastLine) {
-            float *scan = malloc(width * sizeof(float) * (size_t)planes);
-            if (!scan) { failed = 1; return; }
-            for (size_t line = firstLine; line < lastLine; ++line) {
-                size_t top = line * spacing;
-                size_t bottom = top + spacing < height ? top + spacing : height;
-                // Wobble: each line is pushed sideways, a slow wave down the screen with a quicker one over it, as a
-                // CRT's picture wavers when its sync drifts.
-                float wave = sinf((float)line * 0.45f) * 0.7f + sinf((float)line * 1.7f + 1.3f) * 0.3f;
-                long shift = lroundf(p->wobble * wave);
-                for (size_t x = 0; x < width; ++x) {
-                    float sum[3] = { 0, 0, 0 }; int n = 0;
-                    long sx = (long)x - shift;
-                    if (sx >= 0 && sx < (long)width)
-                        for (size_t y = top; y < bottom; ++y) {
-                            size_t at = y * width + (size_t)sx;
-                            if (!alpha[at]) continue;
-                            for (int c = 0; c < planes; ++c) sum[c] += tone[(size_t)c * count + at];
-                            ++n;
-                        }
-                    for (int c = 0; c < planes; ++c) scan[(size_t)c * width + x] = n ? sum[c] / (float)n : 0;
-                }
-                for (size_t y = top; y < bottom; ++y) {
-                    uint8_t *row = rgba + y * stride;
-                    float offset = fabsf((float)(y - top) + 0.5f - middle);
-                    for (size_t x = 0; x < width; ++x) {
-                        if (!alpha[y * width + x]) continue;
-                        // Dots: the line breaks into beads, one every line spacing, each lit in the color at its middle.
-                        float along = fmodf((float)x + 0.5f, (float)spacing) - middle;
-                        long centered = lroundf((float)x - along * dots);
-                        size_t at = centered < 0 ? 0 : (size_t)centered >= width ? width - 1 : (size_t)centered;
-                        float r, g, b, t;
-                        if (p->originalColors) {
-                            r = scan[at]; g = scan[width + at]; b = scan[2 * width + at];
-                            t = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-                        } else {
-                            t = scan[at];
-                            r = screen[0] + (phosphor[0] - screen[0]) * t;
-                            g = screen[1] + (phosphor[1] - screen[1]) * t;
-                            b = screen[2] + (phosphor[2] - screen[2]) * t;
-                        }
-                        // The beam is driven brighter than the picture, making up for the dark screen between lines.
-                        r *= 1.35f; g *= 1.35f; b *= 1.35f;
-                        // Half the beam's height: a thin line in the shadows, most of the way across in the highlights,
-                        // always leaving dark screen between lines.
-                        float beam = middle * (0.2f + 0.5f * sqrtf(clamp01(t)));
-                        float across = along * dots, distance = sqrtf(offset * offset + across * across);
-                        float cover = clamp01(beam - distance + 0.5f);
-                        // Between the lines, the screen: black in Original, else the dark color.
-                        float br = p->originalColors ? 0 : screen[0], bg = p->originalColors ? 0 : screen[1];
-                        float bb = p->originalColors ? 0 : screen[2];
-                        write_pixel(row + x * 4, br + (r - br) * cover, bg + (g - bg) * cover, bb + (b - bb) * cover);
-                    }
-                }
-            }
-            free(scan);
-        });
-        if (failed) { free(tone); free(alpha); free(source); return 0; }
+        DitherScanlinesCtx scanCtx = {
+            rgba, stride, width, height, count, planes, spacing, middle, dots,
+            screen, phosphor, alpha, tone, p, 0
+        };
+        run_bands(lines, dither_scanlines_worker, &scanCtx);
+        if (scanCtx.failed) { free(tone); free(alpha); free(source); return 0; }
     } else {
         // Marks (halftone shapes, patterns, glyphs) cover as much of each spot as the tone calls for. On light, they
         // stand for darkness and are drawn in the dark color; light on dark, the reverse.
@@ -357,18 +406,30 @@ void dither_dots(uint8_t *rgba, size_t width, size_t height, size_t stride, int 
     }
 }
 
-void dither_glow(uint8_t *rgba, const uint8_t *glow, size_t width, size_t height, size_t stride, float amount) {
-    in_bands(height, ^(size_t first, size_t last) {
-        for (size_t y = first; y < last; ++y) {
-            uint8_t *row = rgba + y * stride;
-            const uint8_t *light = glow + y * stride;
-            for (size_t x = 0; x < width * 4; x += 4) {
-                float a = row[x + 3];
-                for (int c = 0; c < 3; ++c) {
-                    float v = (float)row[x + c] + (float)light[x + c] * amount * a / 255.0f;
-                    row[x + c] = (uint8_t)lroundf(v > a ? a : v);
-                }
+typedef struct {
+    uint8_t *rgba;
+    const uint8_t *glow;
+    size_t width;
+    size_t stride;
+    float amount;
+} DitherGlowCtx;
+
+static void dither_glow_worker(size_t first, size_t last, void *arg) {
+    const DitherGlowCtx *ctx = (const DitherGlowCtx *)arg;
+    for (size_t y = first; y < last; ++y) {
+        uint8_t *row = ctx->rgba + y * ctx->stride;
+        const uint8_t *light = ctx->glow + y * ctx->stride;
+        for (size_t x = 0; x < ctx->width * 4; x += 4) {
+            float a = row[x + 3];
+            for (int c = 0; c < 3; ++c) {
+                float v = (float)row[x + c] + (float)light[x + c] * ctx->amount * a / 255.0f;
+                row[x + c] = (uint8_t)lroundf(v > a ? a : v);
             }
         }
-    });
+    }
+}
+
+void dither_glow(uint8_t *rgba, const uint8_t *glow, size_t width, size_t height, size_t stride, float amount) {
+    DitherGlowCtx ctx = { rgba, glow, width, stride, amount };
+    run_bands(height, dither_glow_worker, &ctx);
 }
